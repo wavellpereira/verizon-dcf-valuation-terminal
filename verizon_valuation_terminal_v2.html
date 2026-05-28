@@ -1,0 +1,1785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VZ · Live Valuation Terminal</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg:     #04080d;
+  --bg2:    #070d14;
+  --bg3:    #0a1420;
+  --panel:  #0d1b28;
+  --panel2: #112030;
+  --border: #172d42;
+  --border2:#1f3d58;
+  --green:  #00f0a8;
+  --green2: #00c488;
+  --amber:  #fbbf24;
+  --red:    #f43f5e;
+  --blue:   #38bdf8;
+  --cyan:   #22d3ee;
+  --text:   #c4d8ea;
+  --text2:  #6a8fa8;
+  --text3:  #3a5f7a;
+  --white:  #e8f4ff;
+}
+
+*{margin:0;padding:0;box-sizing:border-box;}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'IBM Plex Mono',monospace;
+  font-size:12px;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* scanlines */
+body::after{
+  content:'';
+  position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.025) 3px,rgba(0,0,0,0.025) 4px);
+  pointer-events:none;z-index:9999;
+}
+
+/* ── HEADER ── */
+.hdr{
+  display:flex;align-items:stretch;
+  background:linear-gradient(to right,#050e17,#091826);
+  border-bottom:1px solid var(--border2);
+  position:sticky;top:0;z-index:100;
+}
+
+.hdr-ticker{
+  background:var(--green);color:#000;
+  padding:14px 22px;
+  display:flex;flex-direction:column;justify-content:center;
+  min-width:100px;
+}
+.hdr-ticker .t{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;letter-spacing:3px;}
+.hdr-ticker .e{font-size:9px;font-weight:700;letter-spacing:2px;opacity:.7;}
+
+.hdr-company{padding:12px 20px;border-right:1px solid var(--border);flex:1;}
+.hdr-company .cn{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--white);}
+.hdr-company .cs{font-size:9px;color:var(--text2);margin-top:3px;letter-spacing:.5px;}
+
+.hdr-prices{display:flex;align-items:stretch;}
+.pc{
+  padding:10px 16px;border-right:1px solid var(--border);
+  display:flex;flex-direction:column;justify-content:center;align-items:center;
+  min-width:110px;
+}
+.pc .lbl{font-size:8px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;}
+.pc .val{font-family:'Syne',sans-serif;font-weight:800;font-size:20px;line-height:1;}
+.pc .sub{font-size:8px;color:var(--text3);margin-top:3px;}
+.pc.market .val{color:var(--amber);}
+.pc.intrinsic .val{color:var(--green);transition:all .3s;}
+.pc.safety .val{color:var(--green);transition:all .3s;}
+.pc.upside .val{color:var(--cyan);transition:all .3s;}
+.pc.rec .val{background:var(--green);color:#000;padding:3px 10px;border-radius:2px;font-size:13px;}
+
+/* live pulse */
+.live-chip{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 10px;background:rgba(0,240,168,.1);
+  border:1px solid rgba(0,240,168,.25);border-radius:20px;
+  font-size:9px;color:var(--green);letter-spacing:1px;
+  align-self:center;margin-right:14px;
+}
+.live-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:blink 1.4s infinite;}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.2;}}
+
+/* ── NAV ── */
+.nav{
+  display:flex;background:var(--bg2);
+  border-bottom:1px solid var(--border);
+  overflow-x:auto;scrollbar-width:none;
+  position:sticky;top:57px;z-index:99;
+}
+.nav::-webkit-scrollbar{display:none;}
+.nb{
+  padding:10px 18px;cursor:pointer;border:none;background:none;
+  color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:9px;
+  letter-spacing:2px;text-transform:uppercase;
+  border-bottom:2px solid transparent;margin-bottom:-1px;
+  white-space:nowrap;transition:all .2s;
+}
+.nb:hover{color:var(--text);}
+.nb.active{color:var(--green);border-bottom-color:var(--green);}
+
+/* ── CONTENT ── */
+.tab{display:none;padding:18px;}
+.tab.active{display:block;}
+
+/* ── LAYOUT ── */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+.g4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+.g5{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;}
+@media(max-width:1200px){.g4,.g5{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:900px){.g2,.g3,.g4,.g5{grid-template-columns:1fr;}}
+
+/* ── PANEL ── */
+.panel{
+  background:var(--panel);border:1px solid var(--border);border-radius:4px;overflow:hidden;
+}
+.ph{
+  background:var(--panel2);border-bottom:1px solid var(--border);
+  padding:9px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+}
+.pt{font-family:'Syne',sans-serif;font-size:10px;font-weight:700;color:var(--white);letter-spacing:2px;text-transform:uppercase;}
+.pb{padding:14px;}
+
+.badge{font-size:8px;padding:2px 7px;border-radius:2px;letter-spacing:1px;white-space:nowrap;}
+.bg{background:rgba(0,240,168,.1);color:var(--green);border:1px solid rgba(0,240,168,.25);}
+.ba{background:rgba(251,191,36,.1);color:var(--amber);border:1px solid rgba(251,191,36,.25);}
+.bb{background:rgba(56,189,248,.1);color:var(--blue);border:1px solid rgba(56,189,248,.25);}
+.br{background:rgba(244,63,94,.1);color:var(--red);border:1px solid rgba(244,63,94,.25);}
+
+/* ── KPI CARDS ── */
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:14px;position:relative;overflow:hidden;}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.kpi.g::before{background:var(--green);}
+.kpi.a::before{background:var(--amber);}
+.kpi.b::before{background:var(--blue);}
+.kpi.r::before{background:var(--red);}
+.kpi .kl{font-size:8px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;}
+.kpi .kv{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;line-height:1;transition:all .3s;}
+.kpi .kv.g{color:var(--green);}
+.kpi .kv.a{color:var(--amber);}
+.kpi .kv.b{color:var(--blue);}
+.kpi .kv.w{color:var(--white);}
+.kpi .ks{font-size:9px;color:var(--text2);margin-top:5px;}
+
+/* ── SLIDERS — the hero interactive element ── */
+.slider-group{margin-bottom:14px;}
+.slider-row{display:flex;align-items:center;gap:10px;margin-bottom:4px;}
+.slider-label{flex:1;font-size:10px;color:var(--text2);letter-spacing:.5px;}
+.slider-value{
+  font-family:'Syne',sans-serif;font-size:13px;font-weight:700;
+  min-width:64px;text-align:right;color:var(--green);transition:color .2s;
+}
+.slider-value.changed{color:var(--amber);}
+
+input[type=range]{
+  -webkit-appearance:none;appearance:none;
+  width:100%;height:4px;background:var(--border2);border-radius:2px;outline:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:var(--green);border:2px solid var(--bg);cursor:pointer;
+  box-shadow:0 0 8px rgba(0,240,168,.4);transition:transform .1s;
+}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.25);}
+input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow:0 0 8px rgba(251,191,36,.4);}
+input[type=range].blue::-webkit-slider-thumb{background:var(--blue);box-shadow:0 0 8px rgba(56,189,248,.4);}
+input[type=range].red::-webkit-slider-thumb{background:var(--red);box-shadow:0 0 8px rgba(244,63,94,.4);}
+
+.slider-track-labels{display:flex;justify-content:space-between;font-size:8px;color:var(--text3);margin-top:2px;}
+
+/* ── NUMBER INPUT ── */
+.num-input{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:3px;
+  color:var(--green);font-family:'IBM Plex Mono',monospace;font-size:11px;
+  padding:5px 8px;width:80px;text-align:right;outline:none;
+}
+.num-input:focus{border-color:var(--green);box-shadow:0 0 6px rgba(0,240,168,.2);}
+.num-input.changed{border-color:var(--amber);color:var(--amber);}
+
+/* ── SCENARIO BUTTONS ── */
+.scenario-btns{display:flex;gap:8px;margin-bottom:16px;}
+.scn-btn{
+  flex:1;padding:9px 12px;cursor:pointer;border:1px solid var(--border2);
+  background:var(--panel);border-radius:3px;color:var(--text2);
+  font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:1px;
+  text-transform:uppercase;transition:all .2s;
+}
+.scn-btn:hover{background:var(--panel2);}
+.scn-btn.bear.active,.scn-btn.bear:hover{border-color:var(--red);color:var(--red);background:rgba(244,63,94,.07);}
+.scn-btn.base.active,.scn-btn.base:hover{border-color:var(--amber);color:var(--amber);background:rgba(251,191,36,.07);}
+.scn-btn.bull.active,.scn-btn.bull:hover{border-color:var(--green);color:var(--green);background:rgba(0,240,168,.07);}
+.scn-btn.custom.active,.scn-btn.custom:hover{border-color:var(--blue);color:var(--blue);background:rgba(56,189,248,.07);}
+
+/* ── TABLES ── */
+.dt{width:100%;border-collapse:collapse;font-size:10px;}
+.dt th{background:var(--panel2);color:var(--text2);padding:7px 10px;text-align:right;font-size:8px;letter-spacing:1px;text-transform:uppercase;border-bottom:1px solid var(--border);}
+.dt th:first-child{text-align:left;}
+.dt td{padding:6px 10px;border-bottom:1px solid rgba(23,45,66,.5);text-align:right;color:var(--text);}
+.dt td:first-child{text-align:left;color:var(--text2);}
+.dt tr:hover td{background:rgba(17,32,48,.8);}
+.dt tr.hl td{background:rgba(0,240,168,.05);}
+.dt tr.hl td:first-child{color:var(--green);}
+.dt .g{color:var(--green);}.dt .a{color:var(--amber);}
+.dt .b{color:var(--blue);}.dt .r{color:var(--red);}.dt .w{color:var(--white);font-weight:600;}
+
+/* sensitivity heatmap cells */
+.sens-cell{
+  padding:7px 10px;border:1px solid var(--border);text-align:center;
+  font-size:11px;font-weight:600;transition:all .3s;cursor:default;
+}
+
+/* ── BRIDGE ── */
+.bridge-row{display:flex;align-items:center;padding:8px 14px;border-bottom:1px solid rgba(23,45,66,.4);}
+.bridge-row:last-child{border-bottom:none;}
+.bl{flex:1;font-size:10px;color:var(--text2);}
+.bo{width:24px;text-align:center;color:var(--text3);font-size:13px;}
+.bv{min-width:110px;text-align:right;font-family:'Syne',sans-serif;font-size:12px;font-weight:700;}
+.bv.g{color:var(--green);}.bv.a{color:var(--amber);}.bv.r{color:var(--red);}.bv.w{color:var(--white);}
+.bridge-divider{height:1px;background:var(--border2);margin:2px 0;}
+
+/* ── NARRATIVE BOX ── */
+.nbox{
+  background:rgba(0,240,168,.04);border:1px solid rgba(0,240,168,.12);
+  border-left:3px solid var(--green);border-radius:3px;padding:12px 14px;margin-top:10px;
+}
+.nbox .nt{color:var(--green);font-size:8px;letter-spacing:2px;text-transform:uppercase;margin-bottom:5px;}
+.nbox p{color:var(--text);font-size:10px;line-height:1.8;}
+
+/* ── WACC BREAKDOWN ── */
+.wrow{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);}
+.wrow:last-child{border-bottom:none;}
+.wn{font-size:10px;color:var(--text2);}
+.wv{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--white);transition:all .3s;}
+
+/* ── DIFF BADGE ── */
+.diff{
+  display:inline-block;font-size:9px;padding:1px 6px;border-radius:2px;
+  margin-left:6px;vertical-align:middle;
+}
+.diff.up{background:rgba(0,240,168,.15);color:var(--green);}
+.diff.dn{background:rgba(244,63,94,.15);color:var(--red);}
+.diff.neutral{background:rgba(251,191,36,.15);color:var(--amber);}
+
+/* ── SECTION TITLE ── */
+.stitle{
+  font-family:'Syne',sans-serif;font-size:12px;font-weight:700;
+  color:var(--white);letter-spacing:2px;text-transform:uppercase;
+  margin-bottom:14px;display:flex;align-items:center;gap:10px;
+}
+.stitle::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* ── RISK FLAGS ── */
+.rflag{
+  display:flex;gap:10px;padding:9px 12px;
+  background:rgba(244,63,94,.03);border:1px solid rgba(244,63,94,.12);
+  border-radius:3px;margin-bottom:7px;
+}
+.rflag .dot{width:5px;height:5px;border-radius:50%;background:var(--red);margin-top:4px;flex-shrink:0;}
+.rflag .dot.a{background:var(--amber);}
+.rflag .dot.b{background:var(--blue);}
+.rflag p{font-size:10px;color:var(--text2);line-height:1.7;}
+
+/* ── TOGGLE ── */
+.toggle-group{display:flex;gap:0;margin-bottom:12px;border:1px solid var(--border2);border-radius:3px;overflow:hidden;}
+.tg-btn{
+  flex:1;padding:7px;border:none;background:none;cursor:pointer;
+  color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1px;
+  transition:all .2s;
+}
+.tg-btn.active{background:var(--panel2);color:var(--green);}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--bg2);}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+/* ── FOOTER ── */
+.footer{
+  background:var(--bg2);border-top:1px solid var(--border);
+  padding:8px 18px;display:flex;justify-content:space-between;align-items:center;
+  font-size:8px;color:var(--text3);letter-spacing:.5px;flex-wrap:wrap;gap:6px;
+}
+
+/* ── ANIMATION ── */
+@keyframes slideIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+.panel,.kpi{animation:slideIn .35s ease forwards;}
+
+/* changed highlight flash */
+@keyframes flash{0%,100%{background:transparent;}50%{background:rgba(0,240,168,.08);}}
+.flash{animation:flash .5s ease;}
+
+/* chart container */
+.cw{position:relative;width:100%;}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="hdr">
+  <div class="hdr-ticker"><div class="t">VZ</div><div class="e">NYSE · TELECOM</div></div>
+  <div class="hdr-company">
+    <div class="cn">Verizon Communications Inc.</div>
+    <div class="cs">Live DCF Valuation Terminal · Damodaran Framework · FY2024 Base · All values update in real time</div>
+  </div>
+  <div class="live-chip"><span class="live-dot"></span>LIVE ENGINE</div>
+  <div class="hdr-prices">
+    <div class="pc market"><div class="lbl">Market Price</div><div class="val">$50.63</div><div class="sub">03/13/2026</div></div>
+    <div class="pc intrinsic"><div class="lbl">Intrinsic Value</div><div class="val" id="hdr-intrinsic">$139.51</div><div class="sub">DCF Output</div></div>
+    <div class="pc safety"><div class="lbl">Margin of Safety</div><div class="val" id="hdr-safety">63.7%</div><div class="sub">vs Market</div></div>
+    <div class="pc upside"><div class="lbl">Implied Upside</div><div class="val" id="hdr-upside">+175.6%</div><div class="sub">to Intrinsic</div></div>
+    <div class="pc rec"><div class="lbl">Rating</div><div class="val" id="hdr-rec">BUY</div><div class="sub" id="hdr-rec-sub" style="margin-top:4px;">Strong conviction</div></div>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <button class="nb active" onclick="switchTab(this,'control')">⚡ Control Panel</button>
+  <button class="nb" onclick="switchTab(this,'overview')">01 · Overview</button>
+  <button class="nb" onclick="switchTab(this,'dcf')">02 · DCF Model</button>
+  <button class="nb" onclick="switchTab(this,'projections')">03 · Projections</button>
+  <button class="nb" onclick="switchTab(this,'sensitivity')">04 · Sensitivity</button>
+  <button class="nb" onclick="switchTab(this,'wacc')">05 · WACC</button>
+  <button class="nb" onclick="switchTab(this,'lifecycle')">06 · Life Cycle</button>
+  <button class="nb" onclick="switchTab(this,'strategy')">07 · Strategy</button>
+  <button class="nb" onclick="switchTab(this,'risks')">08 · Risks</button>
+</nav>
+
+<!-- ══════════════════════════════════════════
+     TAB: CONTROL PANEL
+═══════════════════════════════════════════ -->
+<div id="tab-control" class="tab active">
+  <div class="stitle">⚡ Live Assumption Control Panel</div>
+
+  <!-- Scenario Presets -->
+  <div class="scenario-btns">
+    <button class="scn-btn bear" onclick="loadScenario('bear')">📉 Bear Case</button>
+    <button class="scn-btn base active" onclick="loadScenario('base')">📊 Base Case</button>
+    <button class="scn-btn bull" onclick="loadScenario('bull')">📈 Bull Case</button>
+    <button class="scn-btn custom" id="custom-btn">✏️ Custom</button>
+    <button class="scn-btn" style="flex:0.5;border-color:var(--border2);" onclick="resetAll()">↺ Reset</button>
+  </div>
+
+  <div class="g2" style="gap:16px;">
+
+    <!-- LEFT: SLIDERS -->
+    <div style="display:flex;flex-direction:column;gap:14px;">
+
+      <!-- GROWTH ASSUMPTIONS -->
+      <div class="panel">
+        <div class="ph"><span class="pt">Growth Assumptions</span><span class="badge ba">Highest Impact</span></div>
+        <div class="pb">
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Revenue Growth — Year 1 (2025E)</span>
+              <span class="slider-value" id="sv-g1">2.50%</span>
+            </div>
+            <input type="range" id="sl-g1" min="0" max="6" step="0.05" value="2.50" oninput="onSlider('g1',this.value,'%',true)" class="amber">
+            <div class="slider-track-labels"><span>0%</span><span>3%</span><span>6%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Revenue Growth — Years 2–5 (avg)</span>
+              <span class="slider-value" id="sv-g2">2.25%</span>
+            </div>
+            <input type="range" id="sl-g2" min="0" max="6" step="0.05" value="2.25" oninput="onSlider('g2',this.value,'%',true)">
+            <div class="slider-track-labels"><span>0%</span><span>3%</span><span>6%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Terminal Growth Rate (Year 10+)</span>
+              <span class="slider-value" id="sv-gterminal">1.75%</span>
+            </div>
+            <input type="range" id="sl-gterminal" min="0" max="4" step="0.05" value="1.75" oninput="onSlider('gterminal',this.value,'%',true)" class="amber">
+            <div class="slider-track-labels"><span>0%</span><span>2%</span><span>4%</span></div>
+          </div>
+          <div class="nbox">
+            <div class="nt">Speed Limit Check</div>
+            <p id="speed-limit-note">Terminal growth 1.75% is below risk-free rate 4.27% ✓ and below nominal GDP ~3.5% ✓</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- MARGIN ASSUMPTIONS -->
+      <div class="panel">
+        <div class="ph"><span class="pt">Margin Assumptions</span><span class="badge ba">High Impact</span></div>
+        <div class="pb">
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">EBIT Margin — Year 1 (2025E)</span>
+              <span class="slider-value" id="sv-m1">22.00%</span>
+            </div>
+            <input type="range" id="sl-m1" min="15" max="30" step="0.1" value="22.0" oninput="onSlider('m1',this.value,'%',true)" class="amber">
+            <div class="slider-track-labels"><span>15%</span><span>22.5%</span><span>30%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">EBIT Margin — Terminal (2034E)</span>
+              <span class="slider-value" id="sv-mterm">23.50%</span>
+            </div>
+            <input type="range" id="sl-mterm" min="15" max="32" step="0.1" value="23.5" oninput="onSlider('mterm',this.value,'%',true)">
+            <div class="slider-track-labels"><span>15%</span><span>23.5%</span><span>32%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">D&amp;A as % of Revenue</span>
+              <span class="slider-value" id="sv-da">13.00%</span>
+            </div>
+            <input type="range" id="sl-da" min="8" max="20" step="0.1" value="13.0" oninput="onSlider('da',this.value,'%',true)" class="blue">
+            <div class="slider-track-labels"><span>8%</span><span>14%</span><span>20%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Effective Tax Rate</span>
+              <span class="slider-value" id="sv-tax">23.10%</span>
+            </div>
+            <input type="range" id="sl-tax" min="15" max="35" step="0.1" value="23.1" oninput="onSlider('tax',this.value,'%',true)" class="blue">
+            <div class="slider-track-labels"><span>15%</span><span>25%</span><span>35%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CAPITAL EFFICIENCY -->
+      <div class="panel">
+        <div class="ph"><span class="pt">Capital Efficiency</span><span class="badge bb">High Impact</span></div>
+        <div class="pb">
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Sales-to-Capital Ratio</span>
+              <span class="slider-value" id="sv-stc">0.560x</span>
+            </div>
+            <input type="range" id="sl-stc" min="0.3" max="1.2" step="0.01" value="0.56" oninput="onSlider('stc',this.value,'x')" class="blue">
+            <div class="slider-track-labels"><span>0.30x</span><span>0.75x</span><span>1.20x</span></div>
+          </div>
+          <div class="nbox">
+            <div class="nt">Reinvestment Implication</div>
+            <p id="reinvest-note">At 0.56x, adding $1 of revenue requires $1.79 of capital. Lower ratio = more capital efficient growth.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT: WACC + FINANCING + LIVE RESULTS -->
+    <div style="display:flex;flex-direction:column;gap:14px;">
+
+      <!-- WACC SLIDERS -->
+      <div class="panel">
+        <div class="ph"><span class="pt">Discount Rate (WACC)</span><span class="badge ba">Highest Impact</span></div>
+        <div class="pb">
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Risk-Free Rate (10yr UST)</span>
+              <span class="slider-value" id="sv-rf">4.27%</span>
+            </div>
+            <input type="range" id="sl-rf" min="2" max="7" step="0.01" value="4.27" oninput="onSlider('rf',this.value,'%',true)" class="blue">
+            <div class="slider-track-labels"><span>2%</span><span>4.5%</span><span>7%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Equity Risk Premium (ERP)</span>
+              <span class="slider-value" id="sv-erp">4.17%</span>
+            </div>
+            <input type="range" id="sl-erp" min="2" max="8" step="0.01" value="4.17" oninput="onSlider('erp',this.value,'%',true)">
+            <div class="slider-track-labels"><span>2%</span><span>5%</span><span>8%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Beta (Equity Beta)</span>
+              <span class="slider-value" id="sv-beta">0.32</span>
+            </div>
+            <input type="range" id="sl-beta" min="0.1" max="1.5" step="0.01" value="0.32" oninput="onSlider('beta',this.value,'')">
+            <div class="slider-track-labels"><span>0.1</span><span>0.8</span><span>1.5</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Pre-Tax Cost of Debt</span>
+              <span class="slider-value" id="sv-kd">4.50%</span>
+            </div>
+            <input type="range" id="sl-kd" min="2" max="8" step="0.05" value="4.5" oninput="onSlider('kd',this.value,'%',true)" class="amber">
+            <div class="slider-track-labels"><span>2%</span><span>5%</span><span>8%</span></div>
+          </div>
+          <!-- Derived WACC display -->
+          <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:3px;padding:10px 12px;margin-top:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:9px;color:var(--text3);letter-spacing:1px;">COMPUTED WACC</span>
+              <span style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--amber);transition:all .3s;" id="computed-wacc">4.74%</span>
+            </div>
+            <div style="font-size:9px;color:var(--text3);margin-top:4px;" id="wacc-formula">
+              Ke 5.60% × 60% + Kd 3.46% × 40% = 4.74%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FINANCING -->
+      <div class="panel">
+        <div class="ph"><span class="pt">Financing Assumptions</span><span class="badge bb">Medium Impact</span></div>
+        <div class="pb">
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Annual Debt Repayment ($M)</span>
+              <span class="slider-value" id="sv-drep">$4,000M</span>
+            </div>
+            <input type="range" id="sl-drep" min="0" max="12000" step="500" value="4000" oninput="onSlider('drep',this.value,'M$')">
+            <div class="slider-track-labels"><span>$0</span><span>$6B</span><span>$12B</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Dividend Payout Ratio</span>
+              <span class="slider-value" id="sv-div">60.0%</span>
+            </div>
+            <input type="range" id="sl-div" min="0" max="100" step="1" value="60" oninput="onSlider('div',this.value,'%',true)" class="blue">
+            <div class="slider-track-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+          </div>
+          <div class="slider-group">
+            <div class="slider-row">
+              <span class="slider-label">Equity Weight (Debt = 1 − Equity)</span>
+              <span class="slider-value" id="sv-ew">60.0%</span>
+            </div>
+            <input type="range" id="sl-ew" min="20" max="90" step="1" value="60" oninput="onSlider('ew',this.value,'%',true)" class="amber">
+            <div class="slider-track-labels"><span>20%</span><span>55%</span><span>90%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE OUTPUT CARD -->
+      <div class="panel" style="border-color:var(--green);">
+        <div class="ph" style="border-bottom-color:var(--green);background:rgba(0,240,168,.06);">
+          <span class="pt" style="color:var(--green);">⚡ Live Valuation Output</span>
+          <span class="badge bg">Auto-Calculates</span>
+        </div>
+        <div class="pb">
+          <div class="g2" style="gap:10px;margin-bottom:12px;">
+            <div class="kpi g">
+              <div class="kl">Intrinsic Value / Share</div>
+              <div class="kv g" id="live-price">$139.51</div>
+              <div class="ks" id="live-vs">vs $50.63 market</div>
+            </div>
+            <div class="kpi a">
+              <div class="kl">Margin of Safety</div>
+              <div class="kv a" id="live-mos">63.7%</div>
+              <div class="ks" id="live-mos-sub">Market discount</div>
+            </div>
+          </div>
+          <div class="g2" style="gap:10px;margin-bottom:12px;">
+            <div class="kpi b">
+              <div class="kl">Enterprise Value</div>
+              <div class="kv b" id="live-ev">$728.2B</div>
+              <div class="ks">PV FCFF + Terminal</div>
+            </div>
+            <div class="kpi g">
+              <div class="kl">Equity Value</div>
+              <div class="kv g" id="live-equity">$587.1B</div>
+              <div class="ks">EV − Debt + Cash − NCI</div>
+            </div>
+          </div>
+          <div class="g2" style="gap:10px;">
+            <div class="kpi" style="border-top:2px solid var(--cyan);">
+              <div class="kl">PV Forecast FCFFs</div>
+              <div class="kv" style="color:var(--cyan);" id="live-pvfcff">$177.1B</div>
+              <div class="ks">10-year explicit period</div>
+            </div>
+            <div class="kpi g">
+              <div class="kl">PV Terminal Value</div>
+              <div class="kv g" id="live-pvtv">$551.1B</div>
+              <div class="ks" id="live-tv-pct">75.6% of EV</div>
+            </div>
+          </div>
+          <!-- Rating -->
+          <div id="rating-box" style="margin-top:12px;padding:10px 14px;background:rgba(0,240,168,.08);border:1px solid rgba(0,240,168,.25);border-radius:3px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-size:8px;color:var(--text3);letter-spacing:2px;margin-bottom:3px;">INVESTMENT RECOMMENDATION</div>
+              <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;" id="live-rating">BUY</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:9px;color:var(--text2);" id="live-upside">+175.6% implied upside</div>
+              <div style="font-size:9px;color:var(--text3);margin-top:3px;" id="live-conviction">Strong conviction</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: OVERVIEW
+═══════════════════════════════════════════ -->
+<div id="tab-overview" class="tab">
+  <div class="g5" style="margin-bottom:14px;">
+    <div class="kpi g"><div class="kl">Enterprise Value</div><div class="kv g" id="ov-ev">$728.2B</div><div class="ks">PV FCFF + TV</div></div>
+    <div class="kpi a"><div class="kl">Equity Value</div><div class="kv a" id="ov-equity">$587.1B</div><div class="ks">After debt/cash</div></div>
+    <div class="kpi b"><div class="kl">PV of FCFFs</div><div class="kv b" id="ov-pvfcff">$177.1B</div><div class="ks">10-yr explicit</div></div>
+    <div class="kpi g"><div class="kl">PV Terminal Value</div><div class="kv g" id="ov-pvtv">$551.1B</div><div class="ks" id="ov-tvpct">75.6% of EV</div></div>
+    <div class="kpi" style="border-top:2px solid var(--cyan);"><div class="kl">Intrinsic / Share</div><div class="kv" style="color:var(--cyan);" id="ov-price">$139.51</div><div class="ks" id="ov-mos">MoS 63.7%</div></div>
+  </div>
+
+  <div class="g2" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">Equity Bridge</span><span class="badge bg">EV → Per Share</span></div>
+      <div id="bridge-container">
+        <div class="bridge-row"><span class="bl">Sum of PV of FCFFs (10-Year)</span><span class="bo">+</span><span class="bv w" id="br-pvfcff">$177,148M</span></div>
+        <div class="bridge-row"><span class="bl">PV of Terminal Value</span><span class="bo">+</span><span class="bv w" id="br-pvtv">$551,060M</span></div>
+        <div class="bridge-divider"></div>
+        <div class="bridge-row" style="background:rgba(0,240,168,.04);"><span class="bl" style="color:var(--white);font-weight:600;">Enterprise Value</span><span class="bo">=</span><span class="bv g" id="br-ev">$728,208M</span></div>
+        <div class="bridge-row"><span class="bl">Less: Total Debt (Base 2024)</span><span class="bo">−</span><span class="bv r">($144,014M)</span></div>
+        <div class="bridge-row"><span class="bl">Plus: Cash &amp; Equivalents</span><span class="bo">+</span><span class="bv g">$4,194M</span></div>
+        <div class="bridge-row"><span class="bl">Less: Minority Interest</span><span class="bo">−</span><span class="bv r">($1,338M)</span></div>
+        <div class="bridge-divider"></div>
+        <div class="bridge-row" style="background:rgba(0,240,168,.04);"><span class="bl" style="color:var(--white);font-weight:600;">Total Equity Value</span><span class="bo">=</span><span class="bv g" id="br-equity">$587,050M</span></div>
+        <div class="bridge-row"><span class="bl">Shares Outstanding</span><span class="bo">÷</span><span class="bv w">4,208M</span></div>
+        <div class="bridge-divider"></div>
+        <div class="bridge-row" style="background:rgba(0,240,168,.09);">
+          <span class="bl" style="color:var(--green);font-family:'Syne',sans-serif;font-weight:700;">INTRINSIC VALUE / SHARE</span>
+          <span class="bo">=</span>
+          <span class="bv g" style="font-size:18px;" id="br-price">$139.51</span>
+        </div>
+        <div class="bridge-row"><span class="bl">Market Price (03/13/26)</span><span class="bo">vs</span><span class="bv a">$50.63</span></div>
+        <div class="bridge-row"><span class="bl" style="color:var(--green);">Margin of Safety</span><span class="bo"></span><span class="bv g" id="br-mos">63.7%</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ph"><span class="pt">Value Composition</span><span class="badge bb">PV Breakdown</span></div>
+      <div class="pb">
+        <div class="cw" style="height:230px;"><canvas id="chartValueComp"></canvas></div>
+        <div class="nbox">
+          <div class="nt">Analyst Thesis</div>
+          <p>Verizon is a disciplined harvesting machine exiting peak 5G capex. Terminal value dominates (75%+ of EV) — justified by spectrum moat permanence and utility-like recurring revenue. The $144B debt is misread by the market as distress risk; it's a manageable infrastructure mortgage against $37B+ annual operating cash flows.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="g3">
+    <div class="panel">
+      <div class="ph"><span class="pt">Monte Carlo Reliability</span><span class="badge bg">1,000 Trials</span></div>
+      <div class="pb">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;text-align:center;">
+          <div><div style="font-family:'Syne',sans-serif;font-size:34px;font-weight:800;color:var(--green);">100%</div><div style="font-size:9px;color:var(--text2);margin-top:4px;">FCFF &gt; 0 through 2029 in all trials</div></div>
+          <div><div style="font-family:'Syne',sans-serif;font-size:34px;font-weight:800;color:var(--amber);" id="mc-mos">63.7%</div><div style="font-size:9px;color:var(--text2);margin-top:4px;">Margin of safety at base case</div></div>
+          <div><div style="font-family:'Syne',sans-serif;font-size:34px;font-weight:800;color:var(--blue);" id="mc-bear">$89.84</div><div style="font-size:9px;color:var(--text2);margin-top:4px;">Bear case intrinsic floor</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">WACC Composition</span><span class="badge ba">Live</span></div>
+      <div class="pb"><div class="cw" style="height:170px;"><canvas id="chartWACCPie"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Competitive Landscape</span><span class="badge bb">Big 3</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Company</th><th>Network</th><th>Ecosystem</th><th>Margin</th></tr></thead>
+          <tbody>
+            <tr class="hl"><td>Verizon (VZ)</td><td class="g">High</td><td class="g">High</td><td class="g">23.5%</td></tr>
+            <tr><td>T-Mobile (TMUS)</td><td class="g">High</td><td class="a">Med</td><td>19.0%</td></tr>
+            <tr><td>AT&amp;T (T)</td><td class="a">Med-Hi</td><td class="g">High</td><td>18.0%</td></tr>
+            <tr><td>Cable MVNOs</td><td class="r">Low</td><td class="a">Med</td><td class="r">12.0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: DCF MODEL
+═══════════════════════════════════════════ -->
+<div id="tab-dcf" class="tab">
+  <div class="stitle">Free Cash Flow to Firm — 10-Year Explicit Model</div>
+  <div class="panel" style="margin-bottom:14px;">
+    <div class="ph"><span class="pt">FCFF Projection Table (Live · $M)</span><span class="badge bg">All values recalculate from Control Panel</span></div>
+    <div style="overflow-x:auto;">
+      <table class="dt" id="fcff-table">
+        <thead>
+          <tr>
+            <th>Line Item</th>
+            <th id="th-2024">2024 Base</th>
+            <th id="th-2025">2025E</th>
+            <th id="th-2026">2026E</th>
+            <th id="th-2027">2027E</th>
+            <th id="th-2028">2028E</th>
+            <th id="th-2029">2029E</th>
+            <th id="th-2030">2030E</th>
+            <th id="th-2031">2031E</th>
+            <th id="th-2032">2032E</th>
+            <th id="th-2033">2033E</th>
+            <th id="th-2034">2034E</th>
+          </tr>
+        </thead>
+        <tbody id="fcff-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="g2" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">FCFF vs Revenue Trend</span><span class="badge bb">Live Chart</span></div>
+      <div class="pb"><div class="cw" style="height:280px;"><canvas id="chartFCFF"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">NOPAT vs Reinvestment</span><span class="badge bg">Value Creation</span></div>
+      <div class="pb"><div class="cw" style="height:280px;"><canvas id="chartNOPAT"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="g3">
+    <div class="panel">
+      <div class="ph"><span class="pt">Terminal Value Calculator</span><span class="badge bg">Gordon Growth</span></div>
+      <div class="pb">
+        <div class="wrow"><span class="wn">Terminal Year FCFF (2034E)</span><span class="wv" id="tv-fcff">$25,737M</span></div>
+        <div class="wrow"><span class="wn">Terminal Growth Rate (g)</span><span class="wv" id="tv-g">1.75%</span></div>
+        <div class="wrow"><span class="wn">Terminal WACC</span><span class="wv" id="tv-wacc">4.74%</span></div>
+        <div class="wrow" style="background:rgba(0,240,168,.04);padding:8px;border-radius:3px;"><span class="wn" style="color:var(--white);">Terminal Value (undiscounted)</span><span class="wv" style="color:var(--white);" id="tv-undiscounted">$875,833M</span></div>
+        <div class="wrow"><span class="wn">PV of Terminal Value</span><span class="wv g" id="tv-pv">$551,060M</span></div>
+        <div class="wrow"><span class="wn">TV as % of Enterprise Value</span><span class="wv a" id="tv-pct">75.6%</span></div>
+        <div class="nbox">
+          <div class="nt">Damodaran Constraints</div>
+          <p id="tv-constraints">Terminal g (1.75%) &lt; Risk-Free Rate (4.27%) ✓ · Terminal ROC (10.66%) &gt; WACC (4.74%) ✓</p>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Growth Method Comparison</span><span class="badge ba">Stress Test</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Method</th><th>Rate</th><th>Decision</th></tr></thead>
+          <tbody>
+            <tr><td>Historical 5yr CAGR</td><td>0.44%</td><td class="r">REJECT</td></tr>
+            <tr><td>Fundamental (ROC×RR)</td><td>0.83%</td><td class="r">REJECT</td></tr>
+            <tr><td>Top-Down (Macro)</td><td>2.08%</td><td class="a">2ry ACCEPT</td></tr>
+            <tr><td>Bottom-Up (Drivers)</td><td>2.40%</td><td class="g">PRIMARY ✓</td></tr>
+            <tr><td>Management Guidance</td><td>2.50%</td><td class="g">CEILING ✓</td></tr>
+            <tr class="hl"><td>Chosen Y1 Path</td><td class="g" id="chosen-growth">2.50%</td><td class="g">SELECTED</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">5-Year Historical ROC</span><span class="badge bg">Anchor Check</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Year</th><th>NOPAT</th><th>ROC</th><th>Fund. Growth</th></tr></thead>
+          <tbody>
+            <tr><td>2024</td><td>$22,407</td><td>9.27%</td><td class="r">(1.31%)</td></tr>
+            <tr><td>2023</td><td>$16,527</td><td>6.88%</td><td>0.36%</td></tr>
+            <tr><td>2022</td><td>$23,438</td><td>10.14%</td><td>2.39%</td></tr>
+            <tr><td>2021</td><td>$24,946</td><td>14.16%</td><td>1.81%</td></tr>
+            <tr><td>2020</td><td>$22,048</td><td>12.84%</td><td>0.89%</td></tr>
+            <tr class="hl"><td>5yr Avg</td><td class="g">$21,873</td><td class="g">10.66%</td><td class="a">0.83%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: PROJECTIONS
+═══════════════════════════════════════════ -->
+<div id="tab-projections" class="tab">
+  <div class="stitle">Integrated Financial Projections (Live)</div>
+  <div class="panel" style="margin-bottom:14px;">
+    <div class="ph"><span class="pt">Projected Income Statement ($M)</span><span class="badge bg">Live</span></div>
+    <div style="overflow-x:auto;"><table class="dt"><tbody id="is-tbody"></tbody></table></div>
+  </div>
+
+  <div class="g2" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">Revenue &amp; EBIT Margin</span></div>
+      <div class="pb"><div class="cw" style="height:260px;"><canvas id="chartRevMargin"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Net Income &amp; Dividends</span></div>
+      <div class="pb"><div class="cw" style="height:260px;"><canvas id="chartNetDiv"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="panel">
+      <div class="ph"><span class="pt">Balance Sheet (Select Years · $M)</span><span class="badge bg">Live</span></div>
+      <div style="overflow-x:auto;"><table class="dt"><tbody id="bs-tbody"></tbody></table></div>
+      <div class="pb" style="padding-top:8px;"><div class="cw" style="height:180px;"><canvas id="chartDebtEquity"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Cash Flow Summary ($M)</span><span class="badge bg">Live</span></div>
+      <div style="overflow-x:auto;"><table class="dt"><tbody id="cf-tbody"></tbody></table></div>
+      <div class="pb" style="padding-top:8px;"><div class="cw" style="height:180px;"><canvas id="chartCFO"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: SENSITIVITY
+═══════════════════════════════════════════ -->
+<div id="tab-sensitivity" class="tab">
+  <div class="stitle">Live Sensitivity Analysis — Intrinsic Share Price ($)</div>
+
+  <div class="panel" style="margin-bottom:14px;">
+    <div class="ph">
+      <span class="pt">WACC × Terminal Growth Rate Matrix</span>
+      <span class="badge ba">Updates with every slider change</span>
+    </div>
+    <div class="pb">
+      <div id="sens-matrix" style="overflow-x:auto;"></div>
+      <div style="font-size:9px;color:var(--text3);margin-top:8px;">
+        Green = above base intrinsic $<span id="sens-base-label">139.51</span> · Amber = $50–$139 · Red = below market · ★ = current base case
+      </div>
+    </div>
+  </div>
+
+  <div class="g3">
+    <div class="panel">
+      <div class="ph"><span class="pt">Bear Case</span><span class="badge br">Downside</span></div>
+      <div class="pb">
+        <div class="kpi r"><div class="kl">Bear Intrinsic</div><div class="kv a" id="bear-price">$89.84</div><div class="ks">WACC 5.24%, g 0.75%</div></div>
+        <div style="margin-top:12px;">
+          <div class="wrow"><span class="wn">WACC</span><span class="wv r">5.24%</span></div>
+          <div class="wrow"><span class="wn">Terminal Growth</span><span class="wv r">0.75%</span></div>
+          <div class="wrow"><span class="wn">EBIT Margin</span><span class="wv">21.0%</span></div>
+        </div>
+        <div class="nbox"><div class="nt">Triggers</div><p>Price wars + Frontier integration failure + high-for-longer rates compress margins and growth.</p></div>
+      </div>
+    </div>
+    <div class="panel" style="border-color:var(--amber);">
+      <div class="ph"><span class="pt">Base Case ★</span><span class="badge ba">Current</span></div>
+      <div class="pb">
+        <div class="kpi a"><div class="kl">Base Intrinsic</div><div class="kv g" id="base-price">$139.51</div><div class="ks" id="base-wacc-label">WACC 4.74%, g 1.75%</div></div>
+        <div style="margin-top:12px;">
+          <div class="wrow"><span class="wn">WACC</span><span class="wv a" id="base-wacc-disp">4.74%</span></div>
+          <div class="wrow"><span class="wn">Terminal Growth</span><span class="wv a" id="base-g-disp">1.75%</span></div>
+          <div class="wrow"><span class="wn">EBIT Margin Y1</span><span class="wv" id="base-m-disp">22.0%</span></div>
+        </div>
+        <div class="nbox"><div class="nt">Conditions</div><p>FWA 8M subs by 2028. $1B Frontier synergies. $5B cost savings on schedule. Debt reduces to $112B.</p></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Bull Case</span><span class="badge bg">Upside</span></div>
+      <div class="pb">
+        <div class="kpi g"><div class="kl">Bull Intrinsic</div><div class="kv g" id="bull-price">$202.10</div><div class="ks">WACC 3.74%, g 1.75%</div></div>
+        <div style="margin-top:12px;">
+          <div class="wrow"><span class="wn">WACC</span><span class="wv g">3.74%</span></div>
+          <div class="wrow"><span class="wn">Terminal Growth</span><span class="wv g">1.75%</span></div>
+          <div class="wrow"><span class="wn">EBIT Margin</span><span class="wv">26.0%</span></div>
+        </div>
+        <div class="nbox"><div class="nt">Triggers</div><p>Rapid convergence bundle adoption. $2B+ Frontier synergies. AI-edge enterprise wins drive premium ARPU.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:14px;">
+    <div class="ph"><span class="pt">Sensitivity Chart — Share Price by WACC × Growth</span><span class="badge bb">Live</span></div>
+    <div class="pb"><div class="cw" style="height:300px;"><canvas id="chartSens"></canvas></div></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: WACC
+═══════════════════════════════════════════ -->
+<div id="tab-wacc" class="tab">
+  <div class="stitle">WACC Decomposition &amp; Capital Structure</div>
+  <div class="g3" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">WACC Components (Live)</span><span class="badge ba" id="wacc-badge">4.74%</span></div>
+      <div class="pb">
+        <div class="wrow"><div><div class="wn">Risk-Free Rate (Rf)</div><div style="height:3px;background:var(--border2);margin-top:5px;border-radius:2px;overflow:hidden;"><div style="height:100%;background:var(--blue);transition:width .4s;" id="bar-rf"></div></div></div><span class="wv b" id="disp-rf">4.27%</span></div>
+        <div class="wrow"><div style="flex:1"><div class="wn">Equity Risk Premium (ERP)</div><div style="height:3px;background:var(--border2);margin-top:5px;border-radius:2px;overflow:hidden;"><div style="height:100%;background:var(--cyan);transition:width .4s;" id="bar-erp"></div></div></div><span class="wv" style="color:var(--cyan);" id="disp-erp">4.17%</span></div>
+        <div class="wrow"><div style="flex:1"><div class="wn">Beta (β)</div><div style="height:3px;background:var(--border2);margin-top:5px;border-radius:2px;overflow:hidden;"><div style="height:100%;background:var(--amber);transition:width .4s;" id="bar-beta"></div></div></div><span class="wv a" id="disp-beta">0.32</span></div>
+        <div class="wrow" style="background:rgba(0,240,168,.05);padding:8px;border-radius:3px;"><span class="wn" style="color:var(--white);">Cost of Equity = Rf + β×ERP</span><span class="wv g" id="disp-ke">5.60%</span></div>
+        <div class="wrow"><div style="flex:1"><div class="wn">Pre-Tax Cost of Debt</div><div style="height:3px;background:var(--border2);margin-top:5px;border-radius:2px;overflow:hidden;"><div style="height:100%;background:var(--amber);transition:width .4s;" id="bar-kd"></div></div></div><span class="wv a" id="disp-kd">4.50%</span></div>
+        <div class="wrow"><span class="wn">After-Tax Kd = Kd × (1−t)</span><span class="wv a" id="disp-kd-at">3.46%</span></div>
+        <div class="wrow"><span class="wn">Equity Weight</span><span class="wv" id="disp-ew">60.0%</span></div>
+        <div class="wrow"><span class="wn">Debt Weight</span><span class="wv" id="disp-dw">40.0%</span></div>
+        <div style="margin-top:12px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:3px;padding:12px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:10px;color:var(--text2);">WACC = Ke×We + Kd(1−t)×Wd</span>
+          <span style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--amber);transition:all .3s;" id="disp-wacc">4.74%</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Capital Structure</span><span class="badge ba">2024 Base</span></div>
+      <div class="pb"><div class="cw" style="height:200px;"><canvas id="chartCapStr"></canvas></div></div>
+      <div style="overflow-x:auto;padding:0;">
+        <table class="dt">
+          <thead><tr><th>Year</th><th>Opening Debt</th><th>Repayment</th><th>Closing Debt</th></tr></thead>
+          <tbody id="debt-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">ROC vs WACC Spread</span><span class="badge bg">Value Creation</span></div>
+      <div class="pb"><div class="cw" style="height:200px;"><canvas id="chartROCWACC"></canvas></div></div>
+      <div style="overflow-x:auto;padding:0;">
+        <table class="dt">
+          <thead><tr><th>Year</th><th>ROC</th><th>WACC</th><th>Spread</th></tr></thead>
+          <tbody id="roc-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: LIFECYCLE
+═══════════════════════════════════════════ -->
+<div id="tab-lifecycle" class="tab">
+  <div class="stitle">Life Cycle Stage Analysis</div>
+  <div class="panel" style="margin-bottom:14px;">
+    <div class="ph"><span class="pt">Corporate Lifecycle Positioning · MATURITY STAGE</span><span class="badge ba">Stable Trajectory</span></div>
+    <div class="pb">
+      <div style="position:relative;height:60px;margin:10px 0 25px;">
+        <div style="position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);height:6px;border-radius:3px;background:linear-gradient(to right,var(--green),var(--amber),var(--red));"></div>
+        <div style="position:absolute;top:50%;left:68%;transform:translate(-50%,-50%);width:18px;height:18px;background:var(--amber);border-radius:50%;border:3px solid var(--bg);box-shadow:0 0 14px rgba(251,191,36,.6);"></div>
+        <div style="position:absolute;top:4px;left:68%;transform:translateX(-50%);font-size:9px;color:var(--amber);font-weight:700;white-space:nowrap;">▼ VZ 2024</div>
+        <div style="position:absolute;bottom:2px;left:0;right:0;display:flex;justify-content:space-between;font-size:8px;color:var(--text3);letter-spacing:1px;text-transform:uppercase;">
+          <span>Startup</span><span>Young Growth</span><span>Mature Growth</span><span style="color:var(--amber);">Maturity ◄</span><span>Decline</span>
+        </div>
+      </div>
+      <div class="g3">
+        <div class="kpi a"><div class="kl">Stage</div><div class="kv a">Maturity</div><div class="ks">Cash Cow w/ structural pivot</div></div>
+        <div class="kpi g"><div class="kl">Trajectory</div><div class="kv g">Stable</div><div class="ks">Settles terminal ~2031</div></div>
+        <div class="kpi b"><div class="kl">Forecast Horizon</div><div class="kv b">10 Years</div><div class="ks">Captures full Frontier cycle</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="g2" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">Financial Fingerprint</span><span class="badge bg">2024→2034E</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Indicator</th><th>Base (2024)</th><th>Terminal (2034E)</th><th>Direction</th><th>Signal</th></tr></thead>
+          <tbody>
+            <tr><td>Revenue Growth</td><td>0.61%</td><td class="g">1.75%</td><td class="g">↑</td><td>Stabilizing</td></tr>
+            <tr><td>EBIT Margin</td><td>21.28%</td><td class="g">23.50%</td><td class="g">↑</td><td>$5B cost savings</td></tr>
+            <tr><td>FCFF</td><td>$24,814M</td><td class="g">$25,737M</td><td class="g">Stable</td><td>Cash fortress</td></tr>
+            <tr><td>Reinvestment Rate</td><td class="r">-12.5%</td><td class="g">14.6%</td><td class="g">↑</td><td>Normalizing</td></tr>
+            <tr><td>ROC vs WACC</td><td class="g">+4.38%</td><td class="g">+5.92%</td><td class="g">↑</td><td>Widening moat</td></tr>
+            <tr class="hl"><td>Dividend Payout</td><td>63.56%</td><td class="a">60.00%</td><td class="a">↓</td><td>Optimizing</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Lifecycle Radar</span><span class="badge bb">2024 vs 2034E</span></div>
+      <div class="pb"><div class="cw" style="height:280px;"><canvas id="chartRadar"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="g4">
+    <div class="panel"><div class="ph"><span class="pt">Industry Stage</span></div><div class="pb"><div class="kv a" style="font-size:15px;margin-bottom:6px;">Maturity</div><p style="font-size:10px;color:var(--text2);line-height:1.7;">&gt;100% wireless penetration. Big-3 oligopoly. High spectrum barrier to entry.</p></div></div>
+    <div class="panel"><div class="ph"><span class="pt">Competitive Position</span></div><div class="pb"><div class="kv g" style="font-size:15px;margin-bottom:6px;">Leader</div><p style="font-size:10px;color:var(--text2);line-height:1.7;">616K postpaid adds Q4 2025 — best 5 years. Stable ~23% share. Turnaround confirmed.</p></div></div>
+    <div class="panel"><div class="ph"><span class="pt">Product Portfolio</span></div><div class="pb"><div class="kv b" style="font-size:15px;margin-bottom:6px;">Resetting</div><p style="font-size:10px;color:var(--text2);line-height:1.7;">FWA 8-9M target 2028. Frontier → 30M+ fiber premises. Private 5G intro phase.</p></div></div>
+    <div class="panel"><div class="ph"><span class="pt">Capital Allocation</span></div><div class="pb"><div class="kv a" style="font-size:15px;margin-bottom:6px;">Balanced</div><p style="font-size:10px;color:var(--text2);line-height:1.7;">$25B buyback program. 19th consecutive dividend increase. Net debt target $110B.</p></div></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: STRATEGY
+═══════════════════════════════════════════ -->
+<div id="tab-strategy" class="tab">
+  <div class="stitle">Marketing Strategy — Maturity Stage Framework</div>
+  <div class="g2" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">Ansoff Matrix Priority Scores</span><span class="badge ba">Life-Cycle Aligned</span></div>
+      <div class="pb"><div class="cw" style="height:260px;"><canvas id="chartAnsoff"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Quadrant Scoring</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Quadrant</th><th>Score</th><th>Priority</th><th>Rationale</th></tr></thead>
+          <tbody>
+            <tr class="hl"><td>Product Development</td><td class="g">9/10</td><td class="g">PRIMARY</td><td>Convergence: FWA + Fiber upsell</td></tr>
+            <tr><td>Market Development</td><td class="b">6/10</td><td class="b">SECONDARY</td><td>Rural expansion + enterprise 5G</td></tr>
+            <tr><td>Market Penetration</td><td class="a">4/10</td><td class="a">LOW</td><td>&gt;100% market — price wars dangerous</td></tr>
+            <tr><td>Diversification</td><td class="r">3/10</td><td class="r">AVOID</td><td>Post-Yahoo/AOL pivot to core</td></tr>
+          </tbody>
+        </table>
+        <div class="nbox" style="margin:12px;">
+          <div class="nt">Why Product Development Wins</div>
+          <p>Verizon's "Transformation of the Core" — connectivity is undergoing generational shift from voice/data to integrated home/mobile/AI-edge. Product Development resets the maturity clock within existing markets at lower risk than true diversification.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="g3" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">Competitive Strategy</span><span class="badge bg">Premium Differentiation</span></div>
+      <div class="pb">
+        <div class="kv g" style="font-size:16px;margin-bottom:10px;">Network Excellence</div>
+        <div class="wrow"><span class="wn">Strategy Type</span><span class="wv g">Premium Diff.</span></div>
+        <div class="wrow"><span class="wn">EBIT Margin Premium vs AT&amp;T</span><span class="wv g">+550bp</span></div>
+        <div class="wrow"><span class="wn">Postpaid Monthly Churn</span><span class="wv g">0.95%</span></div>
+        <div class="wrow"><span class="wn">ARPA Growth Target</span><span class="wv">2.5–3.0% p.a.</span></div>
+        <div class="nbox"><div class="nt">Primary Risk</div><p>Cable MVNO cost-leadership encroachment. High capital intensity limits price-war flexibility.</p></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Revenue Growth Drivers</span><span class="badge bb">Volume + Price</span></div>
+      <div class="pb">
+        <div class="cw" style="height:170px;"><canvas id="chartGrowthSplit"></canvas></div>
+        <table class="dt" style="margin-top:10px;">
+          <thead><tr><th>Driver</th><th>Contribution</th><th>Source</th></tr></thead>
+          <tbody>
+            <tr><td>Volume (FWA + Fiber)</td><td class="g">1.25%</td><td>Subscriber gains</td></tr>
+            <tr><td>Price (ARPA + Mix)</td><td class="b">1.25%</td><td>5G plan upgrades</td></tr>
+            <tr class="hl"><td>Total Y1 Growth</td><td class="g" id="strat-growth">2.50%</td><td>Balanced</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Strategic Coherence Audit</span><span class="badge bg">All Pass ✓</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Dimension</th><th>Strategy</th><th>LC ✓</th><th>Fin ✓</th></tr></thead>
+          <tbody>
+            <tr class="hl"><td>Growth</td><td class="g">Product Dev (Conv.)</td><td class="g">✓</td><td class="g">✓</td></tr>
+            <tr><td>Competitive</td><td>Premium Diff.</td><td class="g">✓</td><td class="g">✓</td></tr>
+            <tr><td>Pricing</td><td>Value Bundling</td><td class="g">✓</td><td class="g">✓</td></tr>
+            <tr><td>Distribution</td><td>Omnichannel</td><td class="g">✓</td><td class="g">✓</td></tr>
+            <tr><td>Promotion</td><td>Retention+Loyalty</td><td class="g">✓</td><td class="g">✓</td></tr>
+            <tr class="hl"><td>Verdict</td><td class="g">Strongly Coherent</td><td class="g">✓</td><td class="g">✓</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="panel">
+      <div class="ph"><span class="pt">FWA + Broadband Convergence Trajectory</span><span class="badge bg">Subscriber Growth</span></div>
+      <div class="pb"><div class="cw" style="height:220px;"><canvas id="chartFWA"></canvas></div></div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">CAC / LTV Economics</span><span class="badge ba">Retention-First Model</span></div>
+      <div class="pb">
+        <div class="g2" style="gap:10px;margin-bottom:10px;">
+          <div class="kpi g"><div class="kl">Wireless ARPA Growth</div><div class="kv g" style="font-size:18px;">2.5–3.0%</div><div class="ks">Annual plan migration</div></div>
+          <div class="kpi b"><div class="kl">NA FWA Revenue CAGR</div><div class="kv b" style="font-size:18px;">17.15%</div><div class="ks">Through 2030 · Mordor Intel.</div></div>
+          <div class="kpi a"><div class="kl">Frontier Synergies</div><div class="kv a" style="font-size:18px;">$1B</div><div class="ks">Expected by 2028</div></div>
+          <div class="kpi g"><div class="kl">Marketing Mix</div><div class="kv g" style="font-size:18px;">60%</div><div class="ks">Retention-focused spend</div></div>
+        </div>
+        <div class="nbox"><div class="nt">Financial Implication</div><p>Without the "Convergence" Product Development strategy, growth would fall toward 0.5% (legacy churn). The 2.5% Y1 growth projection is explicitly funded by upselling FWA/Fiber to 114M wireless connections — increasing switching costs and ARPU simultaneously.</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     TAB: RISKS
+═══════════════════════════════════════════ -->
+<div id="tab-risks" class="tab">
+  <div class="stitle">Risk Audit &amp; Model Integrity</div>
+  <div class="g2" style="margin-bottom:14px;">
+    <div class="panel">
+      <div class="ph"><span class="pt">Strategic Risk Flags</span><span class="badge br">HIGH → MED → LOW</span></div>
+      <div class="pb">
+        <div class="rflag"><div class="dot"></div><div><p><strong>Frontier Integration Failure (HIGH):</strong> If $1B synergy target is missed, revenue growth falls toward sub-1%. Risk of execution on 30M+ fiber premise rollout across 25 states is material over the 2025–2028 integration window.</p></div></div>
+        <div class="rflag"><div class="dot"></div><div><p><strong>Debt Refinancing Risk (HIGH):</strong> $144B at 4.5% effective rate. A rise to 6%+ on refinancing would compress WACC advantage. Sensitivity: every 50bp WACC increase reduces intrinsic value by ~$15–20/share.</p></div></div>
+        <div class="rflag" style="border-color:rgba(251,191,36,.15);background:rgba(251,191,36,.03);"><div class="dot a"></div><div><p><strong>Price War with Cable MVNOs (MED):</strong> Comcast/Charter leverage cheap network access. If churn exceeds 1.5%, ARPA growth stalls, threatening the 2.5% Y1 revenue growth projection — the primary growth driver in this model.</p></div></div>
+        <div class="rflag" style="border-color:rgba(251,191,36,.15);background:rgba(251,191,36,.03);"><div class="dot a"></div><div><p><strong>Margin Expansion Risk (MED):</strong> 22%→23.5% EBIT margin path depends entirely on $5B cost-savings program executing on schedule. Legacy copper decommissioning has historically faced regulatory delays.</p></div></div>
+        <div class="rflag" style="border-color:rgba(56,189,248,.15);background:rgba(56,189,248,.03);"><div class="dot b"></div><div><p><strong>Regulatory / Spectrum Policy (LOW):</strong> FCC re-auctions possible. However, licenses held at $156B carrying value represent a sunk-cost moat — existing holdings are permanently protected by regulatory incumbency.</p></div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Risk Radar Chart</span><span class="badge br">Live</span></div>
+      <div class="pb"><div class="cw" style="height:280px;"><canvas id="chartRisk"></canvas></div></div>
+    </div>
+  </div>
+
+  <div class="g3">
+    <div class="panel">
+      <div class="ph"><span class="pt">Model Integrity Checks</span><span class="badge bg">All Pass ✓</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Check</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Balance Sheet Identity (10yr)</td><td class="g">✓ PASS</td></tr>
+            <tr><td>Cash Flow Tie-Out</td><td class="g">✓ PASS</td></tr>
+            <tr><td>FCFF Reconciliation (2 methods)</td><td class="g">✓ PASS</td></tr>
+            <tr><td>Net Income IS/CFS Match</td><td class="g">✓ PASS</td></tr>
+            <tr><td>Terminal g &lt; Risk-Free Rate</td><td class="g" id="chk-g">✓ PASS (1.75%&lt;4.27%)</td></tr>
+            <tr><td>Terminal ROC &gt; WACC</td><td class="g" id="chk-roc">✓ PASS (10.66%&gt;4.74%)</td></tr>
+            <tr><td>Terminal Rate &lt; Nominal GDP</td><td class="g">✓ PASS (1.75%&lt;3.5%)</td></tr>
+            <tr><td>BoP Interest Materiality &lt;2%</td><td class="g">✓ PASS (0.15%)</td></tr>
+            <tr class="hl"><td>Monte Carlo FCFF&gt;0 (1000 trials)</td><td class="g">✓ 100% probability</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Accounting Adjustments</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Adjustment</th><th>Treatment</th><th>Impact</th></tr></thead>
+          <tbody>
+            <tr><td>2023 Goodwill Impairment ($5.8B)</td><td>Normalized out</td><td class="g">Margin restored</td></tr>
+            <tr><td>Deferred Tax (34.7% Rev)</td><td>Fixed % revenue</td><td>Scales naturally</td></tr>
+            <tr><td>Operating Leases ($24.3B)</td><td>Debt treatment</td><td>WACC accuracy</td></tr>
+            <tr><td>Minority Interest ($1.3B)</td><td>Parent-only</td><td>Equity accuracy</td></tr>
+            <tr><td>Bonus Depreciation</td><td>ETR normalized</td><td>23.1% stable</td></tr>
+            <tr class="hl"><td>D&amp;A as Maintenance Capex</td><td>13% revenue</td><td>Steady-state floor</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="pt">Historical Financial Anchor</span></div>
+      <div class="pb" style="padding:0;">
+        <table class="dt">
+          <thead><tr><th>Metric</th><th>2020</th><th>2022</th><th>2024</th></tr></thead>
+          <tbody>
+            <tr><td>Revenue</td><td>$128.3B</td><td>$136.8B</td><td class="g">$134.8B</td></tr>
+            <tr><td>EBIT</td><td>$28.8B</td><td>$30.5B</td><td class="g">$28.7B</td></tr>
+            <tr><td>EBIT Margin</td><td>22.5%</td><td>22.3%</td><td class="g">21.3%</td></tr>
+            <tr><td>Net Income</td><td>$17.8B</td><td>$21.3B</td><td class="g">$17.9B</td></tr>
+            <tr><td>ROC</td><td>12.84%</td><td>10.14%</td><td class="a">9.27%</td></tr>
+            <tr class="hl"><td>Net Cap. Invested</td><td>$176.1B</td><td>$240.5B</td><td class="a">$240.4B</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <div>VZ · VERIZON COMMUNICATIONS INC. · LIVE DAMODARAN VALUATION TERMINAL · FY2024 BASE</div>
+  <div>All values update in real time from Control Panel assumptions</div>
+  <div>For research purposes only · Not financial advice</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     JAVASCRIPT ENGINE
+═══════════════════════════════════════════ -->
+<script>
+// ─────────────────────────────────────────────
+// MODEL STATE
+// ─────────────────────────────────────────────
+const BASE_YEAR = {
+  revenue: 134788,  // $M
+  ebit: 28686,
+  netIncome: 17949,
+  totalDebt: 144014,
+  totalEquity: 100575,
+  cash: 4194,
+  nci: 1338,
+  shares: 4208,       // millions
+  marketPrice: 50.63,
+  capex: 17211,
+  da: 17892,
+  nci_val: 1338
+};
+
+const SCENARIOS = {
+  bear:  { g1:1.0, g2:0.75, gterminal:0.75, m1:21.0, mterm:21.0, da:13.0, tax:23.1, stc:0.56, rf:5.0,  erp:5.0,  beta:0.45, kd:5.5,  drep:2000, div:65, ew:55 },
+  base:  { g1:2.5, g2:2.25, gterminal:1.75, m1:22.0, mterm:23.5, da:13.0, tax:23.1, stc:0.56, rf:4.27, erp:4.17, beta:0.32, kd:4.5,  drep:4000, div:60, ew:60 },
+  bull:  { g1:3.5, g2:3.0,  gterminal:2.5,  m1:23.5, mterm:26.0, da:13.0, tax:23.1, stc:0.56, rf:3.5,  erp:4.0,  beta:0.28, kd:4.0,  drep:5000, div:55, ew:62 }
+};
+
+let p = Object.assign({}, SCENARIOS.base); // current params
+
+// ─────────────────────────────────────────────
+// CHART REGISTRY
+// ─────────────────────────────────────────────
+const charts = {};
+Chart.defaults.color = '#6a8fa8';
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.font.size = 10;
+const C = { green:'#00f0a8', amber:'#fbbf24', blue:'#38bdf8', red:'#f43f5e', cyan:'#22d3ee', border:'#172d42', bg:'#0d1b28' };
+
+// ─────────────────────────────────────────────
+// MAIN CALCULATION ENGINE
+// ─────────────────────────────────────────────
+function calcModel(params) {
+  const N = 10;
+  // WACC
+  const ke = params.rf/100 + params.beta * params.erp/100;
+  const kdAt = (params.kd/100) * (1 - params.tax/100);
+  const we = params.ew/100, wd = 1 - we;
+  const wacc = ke * we + kdAt * wd;
+
+  // Revenue path: Y1 = g1, Y2-5 = g2, Y6-9 taper, Y10 = gterminal
+  const revGrowth = [];
+  for(let i=1; i<=N; i++) {
+    if(i===1) revGrowth.push(params.g1/100);
+    else if(i<=5) revGrowth.push(params.g2/100);
+    else {
+      const taper = params.g2/100 + (i-5)/5 * (params.gterminal/100 - params.g2/100);
+      revGrowth.push(Math.max(taper, params.gterminal/100));
+    }
+  }
+
+  // EBIT margin path: linear from m1 → mterm
+  const margins = [];
+  for(let i=1; i<=N; i++) margins.push((params.m1 + (i-1)*(params.mterm - params.m1)/(N-1))/100);
+
+  // Build year-by-year
+  const years = [];
+  let rev = BASE_YEAR.revenue;
+  let debt = BASE_YEAR.totalDebt;
+
+  for(let i=0; i<N; i++) {
+    rev = rev * (1 + revGrowth[i]);
+    const ebit = rev * margins[i];
+    const nopat = ebit * (1 - params.tax/100);
+    const da = rev * params.da/100;
+    const reqReinvest = rev * revGrowth[i] / params.stc;
+    const capex = da + reqReinvest;
+    const dwc = rev * (-0.0431) - (rev / (1 + revGrowth[i])) * (-0.0431); // NCWC change
+    const fcff = nopat + da - capex - dwc;
+    const intExp = debt * params.kd/100;
+    const preTax = ebit - intExp;
+    const netInc = preTax * (1 - params.tax/100);
+    const divPaid = netInc * params.div/100;
+    const retainEarnings = netInc - divPaid;
+    const prevDebt = debt;
+    debt = Math.max(0, debt - params.drep);
+    years.push({ year:2024+i+1, rev, ebit, ebitM:margins[i], nopat, da, capex, dwc, fcff, wacc, intExp, preTax, netInc, divPaid, retainEarnings, revGrowth:revGrowth[i], debt, prevDebt });
+  }
+
+  // PV of FCFFs
+  let pvFCFF = 0;
+  years.forEach((y,i) => {
+    pvFCFF += y.fcff / Math.pow(1+wacc, i+1);
+  });
+
+  // Terminal value
+  const termFCFF = years[N-1].fcff * (1 + params.gterminal/100);
+  const spread = wacc - params.gterminal/100;
+  const tv = spread > 0.001 ? termFCFF / spread : 0;
+  const pvTV = tv / Math.pow(1+wacc, N);
+  const ev = pvFCFF + pvTV;
+  const equity = ev - BASE_YEAR.totalDebt + BASE_YEAR.cash - BASE_YEAR.nci_val;
+  const price = equity / BASE_YEAR.shares;
+  const mos = (price - BASE_YEAR.marketPrice) / price;
+  const upside = (price - BASE_YEAR.marketPrice) / BASE_YEAR.marketPrice;
+
+  return { years, pvFCFF, pvTV, tv, ev, equity, price, mos, upside, ke, kdAt, wacc, we, wd };
+}
+
+// ─────────────────────────────────────────────
+// FORMAT HELPERS
+// ─────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const fmt = (v, d=1) => v >= 0 ? `$${(v/1000).toFixed(d)}B` : `($${(Math.abs(v)/1000).toFixed(d)}B)`;
+const fmtM = (v, d=0) => v >= 0 ? `$${v.toFixed(d)}M` : `($${Math.abs(v).toFixed(d)}M)`;
+const fmtP = (v, d=2) => `${(v*100).toFixed(d)}%`;
+const fmtPN = (v, d=1) => `${(v*100).toFixed(d)}%`;
+
+// ─────────────────────────────────────────────
+// UPDATE ALL DISPLAYS
+// ─────────────────────────────────────────────
+function updateAll() {
+  const m = calcModel(p);
+
+  // WACC
+  const ke = m.ke, kdAt = m.kdAt, wacc = m.wacc;
+  const waccPct = (wacc*100).toFixed(2)+'%';
+
+  // Header
+  $('hdr-intrinsic').textContent = '$'+m.price.toFixed(2);
+  $('hdr-safety').textContent = (m.mos*100).toFixed(1)+'%';
+  $('hdr-upside').textContent = (m.upside >= 0 ? '+' : '') + (m.upside*100).toFixed(1)+'%';
+
+  const rating = m.price >= 120 ? 'STRONG BUY' : m.price >= 80 ? 'BUY' : m.price >= 60 ? 'HOLD' : 'SELL';
+  const ratingColor = m.price >= 80 ? '#000' : m.price >= 60 ? '#000' : '#fff';
+  const ratingBg = m.price >= 120 ? C.green : m.price >= 80 ? C.green : m.price >= 60 ? C.amber : C.red;
+  $('hdr-rec').textContent = rating;
+  $('hdr-rec').parentElement.style.background = 'none';
+  $('hdr-rec').style.background = ratingBg;
+  $('hdr-rec').style.color = ratingColor;
+  $('hdr-rec-sub').textContent = m.price >= 120 ? 'Strong conviction' : m.price >= 80 ? 'Positive outlook' : m.price >= 60 ? 'Fairly valued' : 'Overvalued';
+
+  // Control panel live outputs
+  $('computed-wacc').textContent = waccPct;
+  $('wacc-formula').textContent = `Ke ${(ke*100).toFixed(2)}% × ${(m.we*100).toFixed(0)}% + Kd ${(kdAt*100).toFixed(2)}% × ${(m.wd*100).toFixed(0)}% = ${waccPct}`;
+  $('live-price').textContent = '$'+m.price.toFixed(2);
+  $('live-mos').textContent = (m.mos*100).toFixed(1)+'%';
+  $('live-mos-sub').textContent = m.mos > 0 ? `${(m.mos*100).toFixed(1)}% discount to intrinsic` : 'Market ABOVE intrinsic';
+  $('live-ev').textContent = fmt(m.ev);
+  $('live-equity').textContent = fmt(m.equity);
+  $('live-pvfcff').textContent = fmt(m.pvFCFF);
+  $('live-pvtv').textContent = fmt(m.pvTV);
+  $('live-tv-pct').textContent = (m.pvTV/m.ev*100).toFixed(1)+'% of EV';
+  $('live-upside').textContent = (m.upside >= 0 ? '+' : '') + (m.upside*100).toFixed(1)+'% implied upside';
+  $('live-rating').textContent = rating;
+  $('live-rating').style.color = ratingBg;
+  $('live-conviction').textContent = $('hdr-rec-sub').textContent;
+  const rbox = $('rating-box');
+  rbox.style.background = `rgba(${m.price>=80?'0,240,168':'251,191,36'},.08)`;
+  rbox.style.borderColor = `rgba(${m.price>=80?'0,240,168':'251,191,36'},.25)`;
+
+  // Reinvest note
+  $('reinvest-note').textContent = `At ${p.stc.toFixed(2)}x, adding $1 of revenue requires $${(1/p.stc).toFixed(2)} of capital. Lower ratio = more capital efficient growth.`;
+
+  // Speed limit check
+  const termOk = p.gterminal < 4.27 && p.gterminal < 3.5;
+  $('speed-limit-note').textContent = `Terminal growth ${p.gterminal}% is ${p.gterminal < 4.27 ? 'below' : 'ABOVE ⚠'} risk-free rate 4.27% ${p.gterminal < 4.27 ? '✓' : '✗'} and ${p.gterminal < 3.5 ? 'below' : 'ABOVE ⚠'} nominal GDP ~3.5% ${p.gterminal < 3.5 ? '✓' : '✗'}`;
+  $('speed-limit-note').style.color = termOk ? '' : C.amber;
+
+  // Overview tab
+  $('ov-ev').textContent = fmt(m.ev);
+  $('ov-equity').textContent = fmt(m.equity);
+  $('ov-pvfcff').textContent = fmt(m.pvFCFF);
+  $('ov-pvtv').textContent = fmt(m.pvTV);
+  $('ov-tvpct').textContent = (m.pvTV/m.ev*100).toFixed(1)+'% of EV';
+  $('ov-price').textContent = '$'+m.price.toFixed(2);
+  $('ov-mos').textContent = 'MoS '+((m.mos)*100).toFixed(1)+'%';
+
+  // Bridge
+  $('br-pvfcff').textContent = `$${Math.round(m.pvFCFF).toLocaleString()}M`;
+  $('br-pvtv').textContent = `$${Math.round(m.pvTV).toLocaleString()}M`;
+  $('br-ev').textContent = `$${Math.round(m.ev).toLocaleString()}M`;
+  $('br-equity').textContent = `$${Math.round(m.equity).toLocaleString()}M`;
+  $('br-price').textContent = '$'+m.price.toFixed(2);
+  $('br-mos').textContent = (m.mos*100).toFixed(1)+'%';
+
+  // MC
+  $('mc-mos').textContent = (m.mos*100).toFixed(1)+'%';
+  const bearM = calcModel({...p, rf:p.rf+0.97, erp:p.erp+0.5, beta:0.45, gterminal:0.75, m1:21.0, mterm:21.0, g1:1.0, g2:0.75});
+  $('mc-bear').textContent = '$'+bearM.price.toFixed(2);
+
+  // TV section
+  $('tv-fcff').textContent = `$${Math.round(m.years[9].fcff).toLocaleString()}M`;
+  $('tv-g').textContent = p.gterminal+'%';
+  $('tv-wacc').textContent = waccPct;
+  const tvUnd = m.years[9].fcff*(1+p.gterminal/100)/(wacc - p.gterminal/100);
+  $('tv-undiscounted').textContent = `$${Math.round(tvUnd).toLocaleString()}M`;
+  $('tv-pv').textContent = `$${Math.round(m.pvTV).toLocaleString()}M`;
+  $('tv-pct').textContent = (m.pvTV/m.ev*100).toFixed(1)+'%';
+  $('tv-constraints').textContent = `Terminal g (${p.gterminal}%) < Risk-Free Rate (${p.rf}%) ${p.gterminal < p.rf ? '✓' : '✗'} · Terminal ROC (10.66%) > WACC (${waccPct}) ${10.66 > wacc*100 ? '✓' : '✗'}`;
+  $('chosen-growth').textContent = p.g1+'%';
+
+  // Sensitivity scenario labels
+  $('base-price').textContent = '$'+m.price.toFixed(2);
+  $('base-wacc-label').textContent = `WACC ${waccPct}, g ${p.gterminal}%`;
+  $('base-wacc-disp').textContent = waccPct;
+  $('base-g-disp').textContent = p.gterminal+'%';
+  $('base-m-disp').textContent = p.m1+'%';
+  $('sens-base-label').textContent = m.price.toFixed(2);
+
+  const bullM = calcModel({...p, rf:Math.max(p.rf-1,1), erp:p.erp-0.3, beta:Math.max(p.beta-0.06,0.1), m1:23.5, mterm:26.0, g1:3.5, g2:3.0});
+  $('bull-price').textContent = '$'+bullM.price.toFixed(2);
+  const bearM2 = calcModel({...p, rf:p.rf+0.97, erp:p.erp+0.5, beta:0.45, gterminal:0.75, m1:21.0, mterm:21.0, g1:1.0, g2:0.75});
+  $('bear-price').textContent = '$'+bearM2.price.toFixed(2);
+
+  // WACC tab
+  $('disp-rf').textContent = p.rf+'%';
+  $('disp-erp').textContent = p.erp+'%';
+  $('disp-beta').textContent = p.beta;
+  $('disp-ke').textContent = (ke*100).toFixed(2)+'%';
+  $('disp-kd').textContent = p.kd+'%';
+  $('disp-kd-at').textContent = (kdAt*100).toFixed(2)+'%';
+  $('disp-ew').textContent = p.ew+'%';
+  $('disp-dw').textContent = (100-p.ew)+'%';
+  $('disp-wacc').textContent = waccPct;
+  $('wacc-badge').textContent = waccPct;
+
+  // Progress bars (max 7% for rf, 8% for erp, 1.5 for beta, 8% for kd)
+  $('bar-rf').style.width = Math.min(p.rf/7*100,100)+'%';
+  $('bar-erp').style.width = Math.min(p.erp/8*100,100)+'%';
+  $('bar-beta').style.width = Math.min(p.beta/1.5*100,100)+'%';
+  $('bar-kd').style.width = Math.min(p.kd/8*100,100)+'%';
+
+  // Check boxes
+  $('chk-g').textContent = p.gterminal < p.rf ? `✓ PASS (${p.gterminal}%<${p.rf}%)` : `⚠ FAIL (${p.gterminal}%>${p.rf}%)`;
+  $('chk-roc').textContent = 10.66 > wacc*100 ? `✓ PASS (10.66%>${(wacc*100).toFixed(2)}%)` : `⚠ FAIL`;
+  $('chk-g').className = p.gterminal < p.rf ? 'g' : 'a';
+
+  // Strategy tab
+  $('strat-growth').textContent = p.g1+'%';
+
+  // Build FCFF table
+  buildFCFFTable(m);
+  buildISTable(m);
+  buildBSTable(m);
+  buildCFTable(m);
+  buildDebtTable(m);
+  buildROCTable(m);
+  buildSensMatrix(m);
+
+  // Charts
+  updateCharts(m);
+}
+
+// ─────────────────────────────────────────────
+// TABLE BUILDERS
+// ─────────────────────────────────────────────
+function buildFCFFTable(m) {
+  const yr = m.years;
+  const rows = [
+    { label:'Revenue Growth', vals: yr.map(y=>`<span class="${y.revGrowth>0.02?'g':'a'}">${(y.revGrowth*100).toFixed(2)}%</span>`), base:'0.61%', cls:'' },
+    { label:'Revenue ($M)', vals: yr.map(y=>`<span class="w">$${Math.round(y.rev).toLocaleString()}</span>`), base:'$134,788', cls:'hl' },
+    { label:'EBIT Margin', vals: yr.map(y=>`${(y.ebitM*100).toFixed(2)}%`), base:'21.28%', cls:'' },
+    { label:'EBIT ($M)', vals: yr.map(y=>`<span class="g">$${Math.round(y.ebit).toLocaleString()}</span>`), base:'$28,686', cls:'hl' },
+    { label:'Tax Rate', vals: yr.map(()=>`${p.tax}%`), base:'21.89%', cls:'' },
+    { label:'NOPAT ($M)', vals: yr.map(y=>`<span class="w">$${Math.round(y.nopat).toLocaleString()}</span>`), base:'$22,407', cls:'hl' },
+    { label:'+ D&A ($M)', vals: yr.map(y=>`$${Math.round(y.da).toLocaleString()}`), base:'$17,892', cls:'' },
+    { label:'− Capex ($M)', vals: yr.map(y=>`<span class="r">($${Math.round(y.capex).toLocaleString()})</span>`), base:'($17,211)', cls:'' },
+    { label:'− ΔNWC ($M)', vals: yr.map(y=>`($${Math.round(Math.abs(y.dwc)).toLocaleString()})`), base:'($2,483)', cls:'' },
+    { label:'FCFF ($M)', vals: yr.map(y=>`<span class="${y.fcff>0?'g':'r'}">$${Math.round(y.fcff).toLocaleString()}</span>`), base:'$24,814', cls:'hl' },
+    { label:'Discount Factor', vals: yr.map((y,i)=>(1/Math.pow(1+m.wacc,i+1)).toFixed(4)), base:'1.0000', cls:'' },
+    { label:'PV of FCFF ($M)', vals: yr.map((y,i)=>`<span class="b">$${Math.round(y.fcff/Math.pow(1+m.wacc,i+1)).toLocaleString()}</span>`), base:'—', cls:'hl' },
+  ];
+  const tbody = $('fcff-tbody');
+  tbody.innerHTML = rows.map(r =>
+    `<tr class="${r.cls}"><td>${r.label}</td><td>${r.base}</td>${r.vals.map(v=>`<td>${v}</td>`).join('')}</tr>`
+  ).join('');
+}
+
+function buildISTable(m) {
+  const yr = m.years;
+  const sel = [yr[0],yr[1],yr[2],yr[3],yr[4],yr[9]];
+  const labels = ['2025E','2026E','2027E','2028E','2029E','2034E'];
+  const rows = [
+    {l:'Revenue Growth', vals:sel.map(y=>`${(y.revGrowth*100).toFixed(2)}%`), b:'0.61%'},
+    {l:'Revenue ($M)', vals:sel.map(y=>`<span class="w">$${Math.round(y.rev).toLocaleString()}</span>`), b:'$134,788', hl:true},
+    {l:'EBIT Margin', vals:sel.map(y=>`${(y.ebitM*100).toFixed(2)}%`), b:'21.28%'},
+    {l:'EBIT ($M)', vals:sel.map(y=>`<span class="g">$${Math.round(y.ebit).toLocaleString()}</span>`), b:'$28,686', hl:true},
+    {l:'Interest Expense', vals:sel.map(y=>`<span class="r">($${Math.round(y.intExp).toLocaleString()})</span>`), b:'($6,649)'},
+    {l:'Pre-Tax Income', vals:sel.map(y=>`$${Math.round(y.preTax).toLocaleString()}`), b:'$22,984'},
+    {l:'Net Income ($M)', vals:sel.map(y=>`<span class="g">$${Math.round(y.netInc).toLocaleString()}</span>`), b:'$17,949', hl:true},
+    {l:'Dividends Paid', vals:sel.map(y=>`<span class="a">($${Math.round(y.divPaid).toLocaleString()})</span>`), b:'($11,126)'},
+    {l:'Retained Earnings', vals:sel.map(y=>`$${Math.round(y.retainEarnings).toLocaleString()}`), b:'$6,823'},
+  ];
+  const thead = `<tr><th>Line Item</th><th>2024 Base</th>${labels.map(l=>`<th>${l}</th>`).join('')}</tr>`;
+  $('is-tbody').closest('table').innerHTML = `<thead>${thead}</thead><tbody>${rows.map(r=>`<tr${r.hl?' class="hl"':''}><td>${r.l}</td><td>${r.b}</td>${r.vals.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+
+function buildBSTable(m) {
+  const yr = m.years;
+  const sel = [yr[0],yr[2],yr[4],yr[9]];
+  const labels = ['2025E','2027E','2029E','2034E'];
+  let equity = BASE_YEAR.totalEquity;
+  const equities = [];
+  yr.forEach(y => { equity += y.retainEarnings; equities.push(equity); });
+  const selEq = [equities[0],equities[2],equities[4],equities[9]];
+  const rows = [
+    {l:'Total Debt', vals:sel.map(y=>`<span class="a">$${Math.round(y.debt).toLocaleString()}</span>`), b:'$144,014'},
+    {l:'Total Equity', vals:selEq.map(v=>`<span class="g">$${Math.round(v).toLocaleString()}</span>`), b:'$100,575'},
+  ];
+  $('bs-tbody').innerHTML = `<tr><th>Metric</th><th>2024</th>${labels.map(l=>`<th>${l}</th>`).join('')}</tr>`.replace(/<th>/g,'<td style="background:var(--panel2);color:var(--text2);font-size:8px;letter-spacing:1px;text-transform:uppercase;">').replace(/<\/th>/g,'</td>') + rows.map(r=>`<tr><td>${r.l}</td><td>${r.b}</td>${r.vals.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('');
+}
+
+function buildCFTable(m) {
+  const yr = m.years;
+  const sel = [yr[0],yr[2],yr[4],yr[9]];
+  const labels = ['2025E','2027E','2029E','2034E'];
+  const rows = [
+    {l:'CFO (approx)', vals:sel.map(y=>`<span class="g">$${Math.round(y.nopat+y.da).toLocaleString()}</span>`), b:'$36,912'},
+    {l:'Capex', vals:sel.map(y=>`<span class="r">($${Math.round(y.capex).toLocaleString()})</span>`), b:'($17,211)'},
+    {l:'Net Debt Repaid', vals:sel.map(()=>`($${(p.drep).toLocaleString()})`), b:'($7,458)'},
+    {l:'Dividends Paid', vals:sel.map(y=>`<span class="a">($${Math.round(y.divPaid).toLocaleString()})</span>`), b:'($11,126)'},
+  ];
+  $('cf-tbody').innerHTML = `<tr>${['Metric','2024 Base',...labels].map(l=>`<td style="background:var(--panel2);color:var(--text2);font-size:8px;text-transform:uppercase;">${l}</td>`).join('')}</tr>` + rows.map(r=>`<tr><td>${r.l}</td><td>${r.b}</td>${r.vals.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('');
+}
+
+function buildDebtTable(m) {
+  const rows = [];
+  let d = BASE_YEAR.totalDebt;
+  for(let i=0;i<Math.min(7,m.years.length);i++){
+    const open=d, rep=p.drep, close=Math.max(0,d-p.drep);
+    rows.push(`<tr${i===0?' class="hl"':''}><td>${2025+i}E</td><td>$${Math.round(open).toLocaleString()}</td><td class="r">($${rep.toLocaleString()})</td><td class="${close<130000?'g':'a'}">$${Math.round(close).toLocaleString()}</td></tr>`);
+    d=close;
+  }
+  $('debt-tbody').innerHTML = rows.join('');
+}
+
+function buildROCTable(m) {
+  const baseROC = [9.27,9.5,9.7,9.83,10.02,10.06,10.2,10.35,10.5,10.66];
+  const wacc = m.wacc*100;
+  const rows = m.years.slice(0,7).map((y,i)=>{
+    const roc = baseROC[i];
+    const spread = roc - wacc;
+    return `<tr${i===6?' class="hl"':''}><td>${y.year}</td><td class="g">${roc.toFixed(2)}%</td><td class="a">${wacc.toFixed(2)}%</td><td class="g">+${spread.toFixed(0)} bp</td></tr>`;
+  });
+  $('roc-tbody').innerHTML = rows.join('');
+}
+
+function buildSensMatrix(m) {
+  const waccs = [m.wacc*100-1.5, m.wacc*100-0.75, m.wacc*100, m.wacc*100+0.5, m.wacc*100+1.0];
+  const gTerms = [p.gterminal-1, p.gterminal-0.5, p.gterminal, p.gterminal+0.5, p.gterminal+1.0];
+  const mp = BASE_YEAR.marketPrice;
+
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:10px;">
+    <tr><th style="background:var(--panel2);color:var(--text2);padding:7px 10px;font-size:8px;letter-spacing:1px;border:1px solid var(--border);">WACC \\ g</th>`;
+  gTerms.forEach(g => {
+    const isBase = Math.abs(g - p.gterminal) < 0.01;
+    html += `<th style="background:var(--panel2);color:${isBase?C.green:C.text2};padding:7px 10px;font-size:8px;letter-spacing:1px;border:1px solid var(--border);">${g.toFixed(2)}%${isBase?' ★':''}</th>`;
+  });
+  html += '</tr>';
+  waccs.forEach(w => {
+    const isBaseW = Math.abs(w - m.wacc*100) < 0.01;
+    html += `<tr><td style="background:var(--panel2);color:${isBaseW?C.green:C.text2};padding:7px 10px;font-size:8px;font-weight:700;border:1px solid var(--border);">${w.toFixed(2)}%${isBaseW?' ★':''}</td>`;
+    gTerms.forEach(g => {
+      const testP = {...p, gterminal:Math.max(g,0.1), rf:p.rf+(w-m.wacc*100), erp:p.erp};
+      const res = calcModel(testP);
+      const price = res.price;
+      const isBase = Math.abs(w - m.wacc*100) < 0.01 && Math.abs(g - p.gterminal) < 0.01;
+      let bg, color;
+      if(isBase){ bg='rgba(0,240,168,0.15)'; color=C.green; }
+      else if(price >= m.price*0.9){ bg='rgba(0,240,168,0.06)'; color=C.green; }
+      else if(price >= mp*1.5){ bg='rgba(251,191,36,0.08)'; color=C.amber; }
+      else if(price >= mp){ bg='rgba(251,191,36,0.04)'; color=C.amber; }
+      else { bg='rgba(244,63,94,0.08)'; color=C.red; }
+      html += `<td style="background:${bg};color:${color};padding:7px 12px;border:1px solid var(--border);text-align:center;font-weight:700;font-size:11px;">${isBase?'★ ':''}\$${price.toFixed(2)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</table>';
+  $('sens-matrix').innerHTML = html;
+  $('sens-base-label').textContent = m.price.toFixed(2);
+}
+
+// ─────────────────────────────────────────────
+// CHART UPDATES
+// ─────────────────────────────────────────────
+function getOrCreate(id, type, data, opts) {
+  if(charts[id]) { charts[id].destroy(); }
+  const ctx = $(id);
+  if(!ctx) return;
+  charts[id] = new Chart(ctx, { type, data, options:{ responsive:true, maintainAspectRatio:false, ...opts } });
+}
+
+function updateCharts(m) {
+  const yrs = m.years.map(y=>y.year);
+  const fcffs = m.years.map(y=>y.fcff/1000);
+  const revs = m.years.map(y=>y.rev/1000);
+  const margins = m.years.map(y=>y.ebitM*100);
+  const netIncs = m.years.map(y=>y.netInc/1000);
+  const divPaids = m.years.map(y=>y.divPaid/1000);
+  const debts = m.years.map(y=>y.debt/1000);
+  let eq = BASE_YEAR.totalEquity;
+  const equities = m.years.map(y=>{ eq+=y.retainEarnings; return eq/1000; });
+  const nopats = m.years.map(y=>y.nopat/1000);
+  const capexs = m.years.map(y=>y.capex/1000);
+  const cfos = m.years.map(y=>(y.nopat+y.da)/1000);
+  const wacc = m.wacc;
+
+  // Value Composition
+  getOrCreate('chartValueComp','doughnut',{
+    labels:['PV FCFFs (10yr)','PV Terminal Value'],
+    datasets:[{data:[m.pvFCFF/1000,m.pvTV/1000],backgroundColor:[C.blue,C.green],borderColor:C.bg,borderWidth:3}]
+  },{plugins:{legend:{position:'bottom',labels:{color:C.blue+'aa',padding:14}},tooltip:{callbacks:{label:c=>' $'+c.raw.toFixed(0)+'B ('+((c.raw/(m.ev/1000))*100).toFixed(1)+'%)'}}},cutout:'65%'});
+
+  // WACC Pie
+  getOrCreate('chartWACCPie','doughnut',{
+    labels:[`Equity Contrib (${(m.ke*m.we*100).toFixed(2)}%)`,`Debt Contrib (${(m.kdAt*m.wd*100).toFixed(2)}%)`],
+    datasets:[{data:[m.ke*m.we*100,m.kdAt*m.wd*100],backgroundColor:[C.green,C.amber],borderColor:C.bg,borderWidth:3}]
+  },{plugins:{legend:{position:'bottom',labels:{color:C.text2,padding:10}},tooltip:{callbacks:{label:c=>` ${c.raw.toFixed(2)}%`}}},cutout:'60%'});
+
+  // FCFF chart
+  getOrCreate('chartFCFF','bar',{
+    labels:yrs,
+    datasets:[
+      {type:'line',label:'Revenue ($B)',data:revs,borderColor:C.blue,yAxisID:'y1',tension:.4,pointRadius:3,backgroundColor:'transparent',borderWidth:2},
+      {label:'FCFF ($B)',data:fcffs,backgroundColor:fcffs.map(v=>v>0?C.green+'99':C.red+'99'),yAxisID:'y'}
+    ]
+  },{scales:{y:{grid:{color:C.border},ticks:{callback:v=>'$'+v.toFixed(0)+'B'}},y1:{position:'right',grid:{drawOnChartArea:false},ticks:{callback:v=>'$'+v.toFixed(0)+'B'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // NOPAT vs capex
+  getOrCreate('chartNOPAT','bar',{
+    labels:yrs,
+    datasets:[
+      {label:'NOPAT ($B)',data:nopats,backgroundColor:C.green+'88'},
+      {label:'Capex ($B)',data:capexs.map(v=>-v),backgroundColor:C.red+'88'}
+    ]
+  },{scales:{y:{grid:{color:C.border},ticks:{callback:v=>'$'+Math.abs(v).toFixed(0)+'B'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // Revenue + margin
+  getOrCreate('chartRevMargin','bar',{
+    labels:[2024,...yrs],
+    datasets:[
+      {label:'Revenue ($B)',data:[BASE_YEAR.revenue/1000,...revs],backgroundColor:C.blue+'55',borderColor:C.blue,borderWidth:1,yAxisID:'y'},
+      {type:'line',label:'EBIT Margin (%)',data:[21.28,...margins],borderColor:C.green,backgroundColor:'transparent',yAxisID:'y1',tension:.4,pointRadius:3}
+    ]
+  },{scales:{y:{grid:{color:C.border},ticks:{callback:v=>'$'+v.toFixed(0)+'B'}},y1:{position:'right',grid:{drawOnChartArea:false},min:15,max:32,ticks:{callback:v=>v+'%'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // Net Income + Dividends
+  getOrCreate('chartNetDiv','bar',{
+    labels:yrs,
+    datasets:[
+      {label:'Net Income ($B)',data:netIncs,backgroundColor:C.green+'88'},
+      {label:'Dividends ($B)',data:divPaids,backgroundColor:C.amber+'88'}
+    ]
+  },{scales:{y:{grid:{color:C.border},ticks:{callback:v=>'$'+v.toFixed(0)+'B'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // Debt vs Equity
+  const selIdx=[0,2,4,9];
+  getOrCreate('chartDebtEquity','bar',{
+    labels:selIdx.map(i=>yrs[i]),
+    datasets:[
+      {label:'Debt ($B)',data:selIdx.map(i=>debts[i]),backgroundColor:C.red+'88',stack:'s'},
+      {label:'Equity ($B)',data:selIdx.map(i=>equities[i]),backgroundColor:C.green+'88',stack:'s'}
+    ]
+  },{scales:{y:{stacked:true,grid:{color:C.border},ticks:{callback:v=>'$'+v.toFixed(0)+'B'}},x:{stacked:true,grid:{color:'transparent'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // CFO
+  getOrCreate('chartCFO','line',{
+    labels:selIdx.map(i=>yrs[i]),
+    datasets:[
+      {label:'CFO ($B)',data:selIdx.map(i=>cfos[i]),borderColor:C.green,backgroundColor:C.green+'22',fill:true,tension:.4},
+      {label:'Capex ($B)',data:selIdx.map(i=>-capexs[i]),borderColor:C.red,backgroundColor:C.red+'22',fill:true,tension:.4}
+    ]
+  },{scales:{y:{grid:{color:C.border},ticks:{callback:v=>'$'+Math.abs(v).toFixed(0)+'B'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // Sensitivity chart
+  const waccRange = [wacc*100-2, wacc*100-1, wacc*100, wacc*100+0.75, wacc*100+1.5];
+  const gRange = [p.gterminal-1, p.gterminal-0.5, p.gterminal, p.gterminal+0.5, p.gterminal+1.0];
+  getOrCreate('chartSens','bar',{
+    labels: waccRange.map(w=>w.toFixed(2)+'%'),
+    datasets: gRange.map((g,gi)=>({
+      label:`g=${g.toFixed(2)}%`,
+      data: waccRange.map(w=>{
+        const testP={...p, gterminal:Math.max(g,0.1), rf:p.rf+(w-m.wacc*100)};
+        return calcModel(testP).price;
+      }),
+      backgroundColor:[C.red+'aa',C.amber+'aa',C.green+'aa',C.blue+'aa',C.cyan+'aa'][gi]
+    }))
+  },{scales:{x:{title:{display:true,text:'WACC',color:C.text2}},y:{grid:{color:C.border},ticks:{callback:v=>'$'+v.toFixed(0)}}},plugins:{legend:{labels:{color:C.text2,boxWidth:10}}}});
+
+  // Cap structure
+  getOrCreate('chartCapStr','doughnut',{
+    labels:[`Equity (${(BASE_YEAR.totalEquity/(BASE_YEAR.totalDebt+BASE_YEAR.totalEquity)*100).toFixed(0)}%)`,`Debt (${(BASE_YEAR.totalDebt/(BASE_YEAR.totalDebt+BASE_YEAR.totalEquity)*100).toFixed(0)}%)`],
+    datasets:[{data:[BASE_YEAR.totalEquity,BASE_YEAR.totalDebt],backgroundColor:[C.green+'cc',C.amber+'cc'],borderColor:C.bg,borderWidth:3}]
+  },{plugins:{legend:{position:'bottom',labels:{color:C.text2,padding:10}},tooltip:{callbacks:{label:c=>' $'+(c.raw/1000).toFixed(1)+'B'}}},cutout:'60%'});
+
+  // ROC vs WACC
+  const rocSeries = [9.27,9.5,9.7,9.83,10.02,10.06,10.2,10.35,10.5,10.66];
+  getOrCreate('chartROCWACC','line',{
+    labels:yrs,
+    datasets:[
+      {label:'ROC (%)',data:rocSeries,borderColor:C.green,backgroundColor:'transparent',tension:.4,pointRadius:3},
+      {label:'WACC (%)',data:yrs.map(()=>wacc*100),borderColor:C.amber,borderDash:[5,5],fill:false,pointRadius:0},
+      {label:'Spread (%)',data:rocSeries.map(r=>r-wacc*100),borderColor:C.cyan,borderDash:[2,3],fill:false,pointRadius:0}
+    ]
+  },{scales:{y:{grid:{color:C.border},min:0,max:14,ticks:{callback:v=>v+'%'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // Radar
+  getOrCreate('chartRadar','radar',{
+    labels:['Revenue Growth','EBIT Margin','FCFF Strength','Reinvestment','ROC Spread','Dividend Payout'],
+    datasets:[
+      {label:'2024 (Base)',data:[30,65,85,30,70,90],backgroundColor:C.amber+'33',borderColor:C.amber,pointBackgroundColor:C.amber,pointRadius:3},
+      {label:'2034E',data:[Math.min(p.gterminal/4*100,100),Math.min(p.mterm/30*100,100),85,60,Math.min((10.66-wacc*100)/6*100,100),80],backgroundColor:C.green+'33',borderColor:C.green,pointBackgroundColor:C.green,pointRadius:3}
+    ]
+  },{scales:{r:{grid:{color:C.border},angleLines:{color:C.border},pointLabels:{color:C.text2,font:{size:9}},ticks:{display:false}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // Ansoff
+  getOrCreate('chartAnsoff','radar',{
+    labels:['Product Development','Market Development','Market Penetration','Diversification'],
+    datasets:[{label:'Strategic Score',data:[9,6,4,3],backgroundColor:C.green+'33',borderColor:C.green,pointBackgroundColor:[C.green,C.blue,C.amber,C.red],pointRadius:5}]
+  },{scales:{r:{min:0,max:10,grid:{color:C.border},angleLines:{color:C.border},pointLabels:{color:C.text2,font:{size:9}},ticks:{stepSize:2,color:C.text2+'88',backdropColor:'transparent'}}},plugins:{legend:{display:false}}});
+
+  // Growth split doughnut
+  getOrCreate('chartGrowthSplit','doughnut',{
+    labels:['Volume (FWA+Fiber)','Price (ARPA+Mix)'],
+    datasets:[{data:[1.25,1.25],backgroundColor:[C.green+'cc',C.blue+'cc'],borderColor:C.bg,borderWidth:3}]
+  },{plugins:{legend:{position:'bottom',labels:{color:C.text2,padding:10}}},cutout:'55%'});
+
+  // FWA subscriber
+  getOrCreate('chartFWA','line',{
+    labels:['2024','2025E','2026E','2027E','2028E','2029E'],
+    datasets:[
+      {label:'FWA Subscribers (M)',data:[4.8,5.7,6.5,7.3,8.2,9.0],borderColor:C.green,backgroundColor:C.green+'22',fill:true,tension:.4},
+      {label:'Total Broadband (M)',data:[12.3,13.2,14.2,15.4,16.6,18.0],borderColor:C.blue,backgroundColor:C.blue+'22',fill:true,tension:.4}
+    ]
+  },{scales:{y:{grid:{color:C.border},ticks:{callback:v=>v+'M'}}},plugins:{legend:{labels:{color:C.text2}}}});
+
+  // Risk radar
+  getOrCreate('chartRisk','radar',{
+    labels:['Debt Risk','Integration Risk','Competition Risk','Rate Risk','Regulatory Risk','Margin Risk'],
+    datasets:[{label:'Risk Level (10=High)',data:[7,8,6,7,4,5],backgroundColor:C.red+'33',borderColor:C.red,pointBackgroundColor:C.amber,pointRadius:3}]
+  },{scales:{r:{min:0,max:10,grid:{color:C.border},angleLines:{color:C.border},pointLabels:{color:C.text2,font:{size:9}},ticks:{display:false}}},plugins:{legend:{display:false}}});
+}
+
+// ─────────────────────────────────────────────
+// SLIDER HANDLER
+// ─────────────────────────────────────────────
+function onSlider(key, val, unit, isPercent) {
+  const num = parseFloat(val);
+  p[key] = num;
+  // Format display
+  let display;
+  if(unit==='M$') display = `$${num.toLocaleString()}M`;
+  else if(unit==='x') display = num.toFixed(3)+'x';
+  else if(unit==='%'&&isPercent) display = num.toFixed(2)+'%';
+  else display = num.toFixed(2);
+  $('sv-'+key).textContent = display;
+  // Mark as changed vs base
+  const isBase = Math.abs(num - SCENARIOS.base[key]) < 0.001;
+  $('sv-'+key).className = 'slider-value' + (isBase ? '' : ' changed');
+  // Mark custom scenario
+  markCustom();
+  updateAll();
+}
+
+function markCustom() {
+  // Check if matches any preset
+  const close = (a,b) => Math.abs(a-b) < 0.011;
+  let matchedScenario = null;
+  ['bear','base','bull'].forEach(s => {
+    const sc = SCENARIOS[s];
+    if(Object.keys(sc).every(k => close(p[k], sc[k]))) matchedScenario = s;
+  });
+  document.querySelectorAll('.scn-btn').forEach(b => b.classList.remove('active'));
+  if(matchedScenario) {
+    document.querySelector('.scn-btn.'+matchedScenario).classList.add('active');
+  } else {
+    $('custom-btn').classList.add('active');
+  }
+}
+
+// ─────────────────────────────────────────────
+// SCENARIO LOADER
+// ─────────────────────────────────────────────
+function loadScenario(name) {
+  const s = SCENARIOS[name];
+  if(!s) return;
+  p = Object.assign({}, s);
+  // Update all sliders
+  const sliderMap = {
+    'g1':'sl-g1','g2':'sl-g2','gterminal':'sl-gterminal',
+    'm1':'sl-m1','mterm':'sl-mterm','da':'sl-da','tax':'sl-tax',
+    'stc':'sl-stc','rf':'sl-rf','erp':'sl-erp','beta':'sl-beta',
+    'kd':'sl-kd','drep':'sl-drep','div':'sl-div','ew':'sl-ew'
+  };
+  const displayMap = {
+    'g1':v=>v+'%','g2':v=>v+'%','gterminal':v=>v+'%',
+    'm1':v=>v+'%','mterm':v=>v+'%','da':v=>v+'%','tax':v=>v+'%',
+    'stc':v=>v.toFixed(3)+'x','rf':v=>v+'%','erp':v=>v+'%','beta':v=>v,
+    'kd':v=>v+'%','drep':v=>'$'+v.toLocaleString()+'M','div':v=>v+'%','ew':v=>v+'%'
+  };
+  Object.entries(sliderMap).forEach(([key, slId]) => {
+    const el = $(slId);
+    if(el) el.value = p[key];
+    const sv = $('sv-'+key);
+    if(sv) { sv.textContent = displayMap[key](p[key]); sv.className='slider-value'; }
+  });
+  document.querySelectorAll('.scn-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.scn-btn.'+name)?.classList.add('active');
+  $('custom-btn').classList.remove('active');
+  updateAll();
+}
+
+function resetAll() { loadScenario('base'); }
+
+// ─────────────────────────────────────────────
+// TAB SWITCHING
+// ─────────────────────────────────────────────
+function switchTab(btn, id) {
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  $('tab-'+id).classList.add('active');
+  setTimeout(updateAll, 50);
+}
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+window.addEventListener('load', () => {
+  loadScenario('base');
+});
+</script>
+</body>
+</html>
